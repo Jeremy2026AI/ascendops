@@ -50,7 +50,7 @@ cortextos bus log-event quality skill_candidate info \
     \"trigger_tasks\": [\"<task_id_1>\", \"<task_id_2>\"],
     \"evidence\": \"<what pattern was observed>\",
     \"effort_estimate\": \"low|medium|high\",
-    \"agent\": \"blue\"
+    \"agent\": \"<your-agent>\"
   }"
 ```
 

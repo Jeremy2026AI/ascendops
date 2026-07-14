@@ -43,7 +43,7 @@ Complete the following in order. Do not skip steps.
    ```
    For all git operations in this session, `cd "$CTX_AGENT_WORKTREE"` first. Never run git commands against `$CTX_FRAMEWORK_ROOT` directly — that path is the canonical orchestrator tree and concurrent agents racing on it caused the 2026-05-22 branch-collision incidents. Refresh to latest main when starting a new task: `"$CTX_FRAMEWORK_ROOT/scripts/worktree/refresh-agent-worktree.sh"`.
 
-   See `orgs/ascendops/docs/durable/worktree-isolation-design-2026-05-23.md` for the full design + migration plan.
+   See `your org internal docs` for the full design + migration plan.
 
 1. **Send boot message first** — before reading anything else. SKIP this step if your startup prompt says `CONTEXT HANDOFF` (that is a handoff restart, not a cold boot):
    ```bash

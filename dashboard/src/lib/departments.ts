@@ -2,10 +2,11 @@
 // runs it (by systemName / filesystem key). Plain data — no React imports — so
 // it is safe to consume from both server components and the client sidebar.
 //
-// Mirrors orgs/ascendops/agents/dane/deliverables/cockpit-dashboard-scope-2026-06-25.html
-// (Operations→dane, Maintenance→blue, Leasing→lacey, Analytics→aussie,
-// Dev→collie, Accounting→cash). Accounting (cash) may not be stood up yet —
-// the department view handles a missing agent gracefully.
+// The `agent` field ships EMPTY by default: each org fills in which of its own
+// agents runs each department. The department view renders an empty agent as a
+// "not yet stood up / to build" config-prompt, so the dashboard is usable before
+// any agents are assigned. (A build-time codegen from the org roster is a planned
+// follow-up so this can auto-populate from the members' actual roster.)
 
 export interface Department {
   /** URL slug: /departments/<slug> */
@@ -19,12 +20,12 @@ export interface Department {
 }
 
 export const DEPARTMENTS: Department[] = [
-  { slug: 'operations',  label: 'Operations',  agent: 'dane',   blurb: 'Orchestration, scheduling, and fleet coordination' },
-  { slug: 'maintenance', label: 'Maintenance', agent: 'blue',   blurb: 'Work orders, vendor dispatch, and turnovers' },
-  { slug: 'leasing',     label: 'Leasing',     agent: 'lacey',  blurb: 'Renewals, applicant screening, and showings' },
-  { slug: 'analytics',   label: 'Analytics',   agent: 'aussie', blurb: 'Reporting, KPIs, and portfolio insight' },
-  { slug: 'dev',         label: 'Dev',         agent: 'collie', blurb: 'Integrations, automation, and the technical stack' },
-  { slug: 'accounting',  label: 'Accounting',  agent: 'cash',   blurb: 'AR/AP, owner draws, and trust reconciliation' },
+  { slug: 'operations',  label: 'Operations',  agent: '', blurb: 'Orchestration, scheduling, and fleet coordination' },
+  { slug: 'maintenance', label: 'Maintenance', agent: '', blurb: 'Work orders, vendor dispatch, and turnovers' },
+  { slug: 'leasing',     label: 'Leasing',     agent: '', blurb: 'Renewals, applicant screening, and showings' },
+  { slug: 'analytics',   label: 'Analytics',   agent: '', blurb: 'Reporting, KPIs, and portfolio insight' },
+  { slug: 'dev',         label: 'Dev',         agent: '', blurb: 'Integrations, automation, and the technical stack' },
+  { slug: 'accounting',  label: 'Accounting',  agent: '', blurb: 'AR/AP, owner draws, and trust reconciliation' },
 ];
 
 export function getDepartment(slug: string): Department | undefined {

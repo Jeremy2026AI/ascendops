@@ -7,7 +7,7 @@ import { validateAgentName, validateOrgName } from '../utils/validate';
 import { atomicWriteSync } from '../utils/atomic';
 import { materializeOnboardingSkill } from './onboarding-skill';
 
-const VALID_RUNTIMES = ['claude-code', 'hermes', 'codex-app-server'] as const;
+const VALID_RUNTIMES = ['claude-code', 'hermes', 'codex-app-server', 'opencode'] as const;
 type RuntimeKind = typeof VALID_RUNTIMES[number];
 
 // Templates that don't have a codex variant yet. Pairing any of these with
@@ -22,8 +22,8 @@ const NON_CODEX_TEMPLATES = [
   'hermes',
   'maintenance-coordinator',
   'leasing-coordinator',
-  'agent-accounting-coordinator',
   'renewals-coordinator',
+  'turnover-coordinator',
 ] as const;
 
 export const addAgentCommand = new Command('add-agent')

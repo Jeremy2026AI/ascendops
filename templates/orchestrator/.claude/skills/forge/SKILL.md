@@ -27,7 +27,7 @@ Turn how-we-actually-slipped into rule-baked skills, on a cadence, so slippage s
    - **Read the accumulated candidate list from the durable forge candidate queue** — the `forge_candidate` events (and/or `docs/ephemeral/forge-runs/candidates.md`) persisted by the detect passes since the last build. Do NOT rely on an in-session list; the candidates were found on prior unattended runs. For each candidate, run the matching method (the forge performs the method itself; if the named helper skill is loadable in the running agent, delegate to it — but never block on it being present):
      - **Create-new** (the `auto-skill` method): draft a new skill to the locked template (frontmatter + steps + hard rules), bake the tied-incident rule, set the model tier + `context: fork`, and route the tracked home (role-specific → role template; shareable → `community/skills/` via skill-autopr).
      - **Edit-existing** (the `skill-optimizer` method): audit the relevant transcript against the target SKILL.md, produce a sharpening diff (tighten triggers / add a hard rule / fix structure), and own the gate + apply + re-activate.
-   - Assemble the change-set as SPECS, not merges. Role-split: detection + the hard-rule spec are the orchestrator's judgment lane; the build/PR/wire is dev-side (your dev agent/Codie).
+   - Assemble the change-set as SPECS, not merges. Role-split: detection + the hard-rule spec are the orchestrator's judgment lane; the build/PR/wire is dev-side (your dev agent/an agent).
 
 4. **Gate every output through the combined load gate** (see hard rule 4) and the two-step registration (tracked-source PR → runtime activation), then **return**: in detect, the candidate list; in build, the gated change-set + which skills are ready to ship/sharpen.
 
