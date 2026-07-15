@@ -1,6 +1,6 @@
 # SOPs — Standard Operating Procedure templates
 
-This directory holds 47 ready-to-use property-management workflow templates as plain
+This directory holds 46 ready-to-use property-management workflow templates as plain
 JSON files. They are **for your agents to read, run, and edit directly** — there is no
 app, backend, or database required. A SOP is just a file: point one of your agents at it,
 or tell your agent how you handle a workflow and let it edit the file.
