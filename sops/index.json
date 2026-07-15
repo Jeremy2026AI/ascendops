@@ -34,7 +34,7 @@
       "name": "Vendor COI Verification",
       "subject_type": "vendor",
       "stage_count": 3,
-      "task_count": 5
+      "task_count": 6
     },
     {
       "slug": "trust-accounting-monthly",

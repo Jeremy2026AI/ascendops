@@ -12,11 +12,24 @@
       "description": "Request and capture vendor insurance evidence.",
       "steps": [
         {
+          "task_key": "coi-outreach-review",
+          "title": "Review COI outreach before vendor contact",
+          "kind": "human_review",
+          "assigned_role": "human",
+          "is_automated": false,
+          "instructions": "Review the vendor, reason for the COI request, approved communication path, and any account context before the agent prepares vendor outreach.",
+          "human_prompt": "Review vendor COI outreach before any vendor contact is prepared.",
+          "estimated_minutes": 5
+        },
+        {
           "task_key": "request-coi",
           "title": "Request COI from vendor",
           "kind": "agent_task",
           "assigned_role": "maintenance",
           "is_automated": true,
+          "depends_on": [
+            "coi-outreach-review"
+          ],
           "instructions": "Request current COI from the vendor using the approved vendor communication path.",
           "dispatch_title": "Request vendor COI",
           "dispatch_body": "Request current COI from vendor. Keep all external messaging approval-gated if required by current policy.",
