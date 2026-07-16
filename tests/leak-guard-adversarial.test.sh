@@ -38,6 +38,31 @@ expect_block "Gemini API key" "Google API key" "$TMP/gemini.txt"
 printf '%s%s%s\n' 'SERVICE_ACCESS_' 'TOKEN=' 'aB3dE5fG7hJ9kL1mN3pQ5rS7' > "$TMP/env.txt"
 expect_block "unquoted uppercase credential" "environment credential assignment" "$TMP/env.txt"
 
+# Configured human-data patterns must remain fail-closed. Values are assembled
+# so this regression file itself does not contain the planted PII contiguously.
+printf 'email: %s@%s.%s\n' 'private.person' 'customer' 'invalid' > "$TMP/email.txt"
+expect_block "email address" "email address" "$TMP/email.txt"
+
+printf 'address: %s %s %s\n' '742' 'Private' 'Lane' > "$TMP/address.txt"
+expect_block "street address" "street address" "$TMP/address.txt"
+
+printf 'contact_name=%s %s\n' 'Private' 'Person' > "$TMP/contact-name.txt"
+expect_block "person name in contact field" "person name in a contact field" "$TMP/contact-name.txt"
+
+# NANP 555-0100 through 555-0199 is the only synthetic fixture range accepted.
+printf 'phone: 212-555-%s\n' '0100' > "$TMP/phone-lower-bound.txt"
+if ! bash "$GUARD" "$TMP/phone-lower-bound.txt" > /dev/null 2>&1; then
+  echo "FAIL: reserved phone lower bound was blocked"
+  failures=$((failures + 1))
+fi
+printf 'phone: 212-555-%s\n' '0199' > "$TMP/phone-upper-bound.txt"
+if ! bash "$GUARD" "$TMP/phone-upper-bound.txt" > /dev/null 2>&1; then
+  echo "FAIL: reserved phone upper bound was blocked"
+  failures=$((failures + 1))
+fi
+printf 'phone: 212-555-%s\n' '0200' > "$TMP/phone-outside-range.txt"
+expect_block "phone outside reserved fixture range" "US phone number outside reserved 555-01XX fixture range" "$TMP/phone-outside-range.txt"
+
 agent_name='da''ne'
 memory_path="$TMP/orgs/acme/agents/$agent_name/MEMORY.md"
 mkdir -p "$(dirname "$memory_path")"
