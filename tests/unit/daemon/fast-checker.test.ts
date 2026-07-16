@@ -1598,12 +1598,12 @@ describe('FastChecker', () => {
 
     it('TC-S2: new message — wakes agent with correct inbox format', async () => {
       mockApi.getHistory.mockResolvedValue([{ ts: '1234.0001', user: 'U123', text: 'Hello', type: 'message' }]);
-      mockApi.getUserInfo.mockResolvedValue({ handle: 'brittany.hunter', displayName: 'Brittany Hunter' });
+      mockApi.getUserInfo.mockResolvedValue({ handle: 'morgan.reed', displayName: 'Morgan Reed' });
       await (checker as any).checkSlackWatch();
       expect(sendMessage).toHaveBeenCalledTimes(1);
       const text = (sendMessage as any).mock.calls[0][4];
       // Handle present, no team_members -> "Name (@handle)".
-      expect(text).toContain('=== SLACK from Brittany Hunter (@brittany.hunter)');
+      expect(text).toContain('=== SLACK from Morgan Reed (@morgan.reed)');
       expect(text).toContain('channel:C1234567890');
       expect(text).toContain('Hello');
       expect(text).toContain('Reply using: cortextos bus send-slack');
@@ -1615,7 +1615,7 @@ describe('FastChecker', () => {
           channel: 'C1234567890',
           intervalMs: 60000,
           token: 'xoxb-test',
-          trustedSlackUsers: ['brittany.hunter'],
+          trustedSlackUsers: ['morgan.reed'],
         },
       });
       (gated as any).slackLastCheckedAt = 0;
@@ -1641,7 +1641,7 @@ describe('FastChecker', () => {
           channel: 'C1234567890',
           intervalMs: 60000,
           token: 'xoxb-test',
-          trustedSlackUsers: ['brittany.hunter'],
+          trustedSlackUsers: ['morgan.reed'],
         },
       });
       (gated as any).slackLastCheckedAt = 0;
@@ -1658,8 +1658,8 @@ describe('FastChecker', () => {
           channel: 'C1234567890',
           intervalMs: 60000,
           token: 'xoxb-test',
-          trustedSlackUsers: ['brittany.hunter'],
-          teamMembers: [{ name: 'Brittany Hunter', role: 'Ops', slack_handle: 'brittany.hunter', trust_level: 'owner' }],
+          trustedSlackUsers: ['morgan.reed'],
+          teamMembers: [{ name: 'Morgan Reed', role: 'Ops', slack_handle: 'morgan.reed', trust_level: 'owner' }],
         },
       });
       (gated as any).slackLastCheckedAt = 0;
@@ -1673,14 +1673,14 @@ describe('FastChecker', () => {
       gatedApi.getHistory.mockResolvedValue(history);
       gatedApi.getUserInfo.mockImplementation(async (id: string) =>
         id === 'UBRIT'
-          ? { handle: 'brittany.hunter', displayName: 'Brittany Hunter' }
+          ? { handle: 'morgan.reed', displayName: 'Morgan Reed' }
           : { handle: 'random.person', displayName: 'Random Person' },
       );
       await (gated as any).checkSlackWatch();
       expect(sendMessage).toHaveBeenCalledTimes(1);
       const text = (sendMessage as any).mock.calls[0][4];
       expect(text).toContain('real request');
-      expect(text).toContain('from Brittany Hunter (@brittany.hunter, owner)');
+      expect(text).toContain('from Morgan Reed (@morgan.reed, owner)');
       expect(text).not.toContain('spam');
     });
 
@@ -1692,13 +1692,13 @@ describe('FastChecker', () => {
       mockApi.getHistory.mockResolvedValue([
         { ts: '13.0', user: 'U123', type: 'message', subtype: 'file_share' },
       ]);
-      mockApi.getUserInfo.mockResolvedValue({ handle: 'brittany.hunter', displayName: 'Brittany Hunter' });
+      mockApi.getUserInfo.mockResolvedValue({ handle: 'morgan.reed', displayName: 'Morgan Reed' });
       await (checker as any).checkSlackWatch();
       expect(sendMessage).toHaveBeenCalledTimes(1);
       const text = (sendMessage as any).mock.calls[0][4];
       expect(text).not.toContain('undefined');
       const lines = text.split('\n');
-      expect(lines[0]).toContain('=== SLACK from Brittany Hunter (@brittany.hunter)');
+      expect(lines[0]).toContain('=== SLACK from Morgan Reed (@morgan.reed)');
       expect(lines[1]).toBe('');
       expect(lines[2]).toContain('Reply using: cortextos bus send-slack');
     });

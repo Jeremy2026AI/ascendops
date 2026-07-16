@@ -984,11 +984,11 @@ export const VALID_TRUST_LEVELS: TrustLevel[] = ['owner', 'manager', 'member'];
  * Stored in org config or agent config under team_members.
  */
 export interface TeamMember {
-  /** Display name (e.g. "Brittany Hunter") */
+  /** Display name (e.g. "Morgan Reed") */
   name: string;
   /** Job role or title (e.g. "Operations Manager") */
   role: string;
-  /** Slack handle without @ (e.g. "brittany.hunter") */
+  /** Slack handle without @ (e.g. "morgan.reed") */
   slack_handle: string;
   /** Trust level — determines how the agent treats messages from this person */
   trust_level: TrustLevel;
