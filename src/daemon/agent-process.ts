@@ -549,7 +549,20 @@ export class AgentProcess {
       execFileSync(
         'cortextos',
         ['bus', 'log-event', 'error', 'watchdog_rollback_preflight', 'error', '--meta', meta],
-        { stdio: 'pipe' },
+        {
+          cwd: this.env.agentDir || process.cwd(),
+          env: {
+            ...process.env,
+            CTX_AGENT_NAME: this.name,
+            CTX_AGENT_DIR: this.env.agentDir,
+            CTX_ORG: this.env.org,
+            CTX_ROOT: this.env.ctxRoot,
+            CTX_PROJECT_ROOT: this.env.projectRoot,
+            CTX_FRAMEWORK_ROOT: this.env.frameworkRoot,
+            CORTEXTOS_DIR: this.env.frameworkRoot || process.env.CORTEXTOS_DIR,
+          },
+          stdio: 'pipe',
+        },
       );
     } catch (err) {
       this.log(`Watchdog: failed to log rollback preflight event — ${err instanceof Error ? err.message : String(err)}`);

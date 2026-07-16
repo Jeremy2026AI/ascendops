@@ -52,6 +52,15 @@ vi.mock('../../../src/utils/paths.js', () => ({
   resolvePaths: vi.fn().mockReturnValue({}),
 }));
 
+const mockExecFileSync = vi.fn();
+vi.mock('child_process', async () => {
+  const actual = await vi.importActual<typeof import('child_process')>('child_process');
+  return {
+    ...actual,
+    execFileSync: mockExecFileSync,
+  };
+});
+
 const mockWriteFileSync = vi.fn();
 const mockExistsSync = vi.fn().mockReturnValue(false);
 const mockReadFileSync = vi.fn().mockReturnValue('');
@@ -116,6 +125,7 @@ beforeEach(() => {
   mockPty.getOutputBuffer.mockClear();
   mockOutputBuffer.hasRateLimitSignature.mockClear();
   mockWriteFileSync.mockClear();
+  mockExecFileSync.mockClear();
   mockExistsSync.mockReturnValue(false);
   mockReadFileSync.mockReturnValue('');
   mockRecordFailure.mockClear();
@@ -251,6 +261,46 @@ describe('AgentProcess - rate-limit recovery', () => {
     expect(mockRecordFailure).toHaveBeenCalledWith('/tmp/test-ctx/state/alice', '/tmp/repo');
     expect(mockShouldRollback).toHaveBeenCalledWith('/tmp/test-ctx/state/alice', '/tmp/repo');
     expect(mockPerformRollback).not.toHaveBeenCalled();
+  });
+
+  it('logs rollback preflight with the crashing agent context when rollback is enabled', async () => {
+    mockHasRateLimitSignature = false;
+    mockFindGitRoot.mockReturnValue('/tmp/repo');
+    mockShouldRollback.mockReturnValue(true);
+    mockIsWatchdogRollbackEnabled.mockReturnValue(true);
+    mockPerformRollback.mockImplementationOnce(async (_stateDir, _repoRoot, options) => {
+      options.logEventBeforeRollback({
+        repoRoot: '/tmp/repo',
+        stateDir: '/tmp/test-ctx/state/alice',
+        branch: 'main',
+        failedCommit: 'abc123456789',
+        target: 'def123456789',
+        resetCount: 0,
+        maxResets: 1,
+      });
+      return { success: false, rolledBackTo: '', stashRef: null, reason: 'test stop' };
+    });
+    const ap = new AgentProcess('alice', mockEnv, {});
+    await ap.start();
+
+    capturedOnExit!(1, 0);
+    await Promise.resolve();
+
+    expect(mockExecFileSync).toHaveBeenCalledWith(
+      'cortextos',
+      ['bus', 'log-event', 'error', 'watchdog_rollback_preflight', 'error', '--meta', expect.any(String)],
+      expect.objectContaining({
+        cwd: '/tmp/fw/orgs/acme/agents/alice',
+        env: expect.objectContaining({
+          CTX_AGENT_NAME: 'alice',
+          CTX_AGENT_DIR: '/tmp/fw/orgs/acme/agents/alice',
+          CTX_ORG: 'acme',
+          CTX_ROOT: '/tmp/test-ctx',
+          CTX_PROJECT_ROOT: '/tmp/fw',
+          CTX_FRAMEWORK_ROOT: '/tmp/fw',
+        }),
+      }),
+    );
   });
 
   it('startup prompt includes RATE-LIMIT RECOVERY when .rate-limited marker exists', async () => {
