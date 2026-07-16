@@ -52,7 +52,7 @@ configured patterns, but a green scan does not prove contextual persona data is 
 - [ ] No secrets, tokens, keys, passwords, credential contents, or private credential paths are present.
 - [ ] No real names, emails, phone numbers, addresses, calendar events, inbox content, contacts, family details, financial data, or customer/resident/owner/vendor/applicant data are present.
 - [ ] Every synthetic US phone fixture uses the NANP-reserved `555-0100` through `555-0199` range; any phone-shaped value outside that range has been removed.
-- [ ] No private or organization-specific names, domains, internal paths, agent rosters, chat IDs, label IDs, account/tenant IDs, production URLs, memories, transcripts, incident history, or runtime state are present. Public integration domains declared in `external_calls` are permitted.
+- [ ] No private or organization-specific names, domains, internal paths, agent rosters, chat IDs, label IDs, account/tenant IDs, production URLs, memories, transcripts, incident history, or runtime state are present. Public integration domains disclosed in the contribution's required integration declarations are permitted.
 - [ ] Agent/persona fixtures are synthetic and cannot be traced back to a real person or organization.
 
 ## Do We Want To Own It?

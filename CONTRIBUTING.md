@@ -190,7 +190,7 @@ Before opening a PR, verify the following. These are contributor attestations re
 - [ ] No secrets, tokens, API keys, or personal data
 - [ ] No real-person inbox, calendar, contact, family, financial, resident, owner, applicant, vendor, or customer data
 - [ ] Every synthetic US phone fixture uses the reserved `555-0100` through `555-0199` range
-- [ ] No private or organization-specific names, domains, paths, account identifiers, production URLs, runtime state, or incident history; public integration domains declared in `external_calls` are permitted
+- [ ] No private or organization-specific names, domains, paths, account identifiers, production URLs, runtime state, or incident history; public integration domains disclosed in the contribution's required integration declarations are permitted
 - [ ] Full `upstream/main...HEAD` file list matches the intended-file manifest in the pull request
 - [ ] No unrelated inherited commits or stale-fork catch-up changes are present
 - [ ] No `rm -rf`, `curl | sh`, or shell injection patterns

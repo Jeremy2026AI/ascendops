@@ -19,12 +19,26 @@ describe('member contribution intake contract', () => {
     );
   });
 
-  it('allows declared public integration domains while blocking private identifiers', () => {
+  it('allows disclosed public integrations for every contribution type', () => {
     expect(contributing).toContain(
       'Array of strings listing every external API, service, or URL the skill contacts.',
     );
+    expect(pullRequestTemplate).toContain(
+      '**Type:** <!-- bug fix | feature | skill | agent template | documentation -->',
+    );
+    expect(pullRequestTemplate).toContain(
+      '**External services, APIs, scopes, environment variables, and permissions:**',
+    );
+
     for (const document of [contributing, pullRequestTemplate]) {
-      expect(document).toMatch(/public integration domains/i);
+      const exception = document
+        .split('\n')
+        .find((line) => /public integration domains/i.test(line));
+
+      expect(exception).toMatch(
+        /disclosed in the contribution's required integration declarations/i,
+      );
+      expect(exception).not.toContain('external_calls');
       expect(document).toMatch(/private or organization-specific names, domains/);
       expect(document).not.toMatch(/No organization names, domains/);
     }
