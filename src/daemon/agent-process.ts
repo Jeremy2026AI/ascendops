@@ -1,6 +1,7 @@
 import { appendFileSync, existsSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'fs';
 import { join, sep } from 'path';
 import { homedir } from 'os';
+import { execFileSync } from 'child_process';
 import type { AgentConfig, AgentStatus, CtxEnv } from '../types/index.js';
 import { AgentPTY } from '../pty/agent-pty.js';
 import { CodexAppServerPTY } from '../pty/codex-app-server-pty.js';
@@ -18,9 +19,13 @@ import {
   markHealthy,
   shouldRollback,
   performRollback,
+  isWatchdogRollbackEnabled,
+  watchdogRollbackFloorRef,
+  watchdogRollbackMaxResets,
   readRecoveryNote,
   deleteRecoveryNote,
   MIN_HEALTHY_SECONDS,
+  type RollbackPreflightContext,
 } from './watchdog.js';
 type LogFn = (msg: string) => void;
 type StartOptions = { partOfFleetStart?: boolean };
@@ -194,7 +199,7 @@ export class AgentProcess {
         return;
       }
       this.log(`Exited with code ${exitCode} signal ${signal}`);
-      this.handleExit(exitCode);
+      void this.handleExit(exitCode);
       // Signal anyone awaiting this PTY's exit (e.g. stop() — BUG-011 fix)
       this.resolveExit?.();
       this.resolveExit = null;
@@ -530,6 +535,49 @@ export class AgentProcess {
     }
   }
 
+  private logWatchdogRollbackEvent(context: RollbackPreflightContext): void {
+    const meta = JSON.stringify({
+      agent: this.name,
+      branch: context.branch,
+      failed_commit: context.failedCommit,
+      target: context.target,
+      reset_count: context.resetCount,
+      max_resets: context.maxResets,
+      repo_root: context.repoRoot,
+    });
+    try {
+      execFileSync(
+        'cortextos',
+        ['bus', 'log-event', 'error', 'watchdog_rollback_preflight', 'error', '--meta', meta],
+        { stdio: 'pipe' },
+      );
+    } catch (err) {
+      this.log(`Watchdog: failed to log rollback preflight event — ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  private async notifyWatchdogRollback(context: RollbackPreflightContext): Promise<void> {
+    const telegramApi = this.telegramApi;
+    const telegramChatId = this.telegramChatId;
+    if (!telegramApi || !telegramChatId) {
+      this.log('Watchdog: no Telegram handle wired for rollback pre-notify');
+      return;
+    }
+    const text = [
+      `WATCHDOG ROLLBACK ABOUT TO RUN`,
+      `Agent: ${this.name}`,
+      `Branch: ${context.branch}`,
+      `Failed commit: ${context.failedCommit.slice(0, 12)}`,
+      `Rollback target: ${context.target.slice(0, 12)}`,
+      `Depth: ${context.resetCount + 1}/${context.maxResets}`,
+    ].join('\n');
+    try {
+      await telegramApi.sendMessage(telegramChatId, text);
+    } catch (err) {
+      this.log(`Watchdog: rollback pre-notify failed — ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   /**
    * Write raw data to the agent's PTY.
    * Used for TUI navigation (key sequences).
@@ -617,7 +665,7 @@ export class AgentProcess {
     }
   }
 
-  private handleExit(exitCode: number): void {
+  private async handleExit(exitCode: number): Promise<void> {
     // Capture the output buffer BEFORE nulling this.pty — needed for rate-limit
     // detection below (hasRateLimitSignature reads from the buffer).
     const outputBuffer = this.pty?.getOutputBuffer();
@@ -790,12 +838,21 @@ export class AgentProcess {
     recordFailure(stateDir, this.repoRoot);
 
     if (this.repoRoot && shouldRollback(stateDir, this.repoRoot)) {
-      this.log(`Watchdog: commit unstable after ${this.crashCount} crashes — performing git rollback`);
-      const result = performRollback(stateDir, this.repoRoot);
-      if (result.success) {
-        this.log(`Watchdog: rolled back to ${result.rolledBackTo.slice(0, 12)}${result.stashRef ? `, stash: ${result.stashRef}` : ''}`);
+      if (!isWatchdogRollbackEnabled()) {
+        this.log('Watchdog: rollback threshold reached, but WATCHDOG_ROLLBACK_ENABLED is not true — diagnostics recorded, destructive rollback skipped');
       } else {
-        this.log(`Watchdog: rollback failed — ${result.reason}`);
+        this.log(`Watchdog: commit unstable after ${this.crashCount} crashes — performing git rollback`);
+        const result = await performRollback(stateDir, this.repoRoot, {
+          maxResetsPerBranch: watchdogRollbackMaxResets(),
+          floorRef: watchdogRollbackFloorRef(),
+          logEventBeforeRollback: (context) => this.logWatchdogRollbackEvent(context),
+          notifyBeforeRollback: (context) => this.notifyWatchdogRollback(context),
+        });
+        if (result.success) {
+          this.log(`Watchdog: rolled back to ${result.rolledBackTo.slice(0, 12)}${result.stashRef ? `, stash: ${result.stashRef}` : ''}`);
+        } else {
+          this.log(`Watchdog: rollback failed — ${result.reason}`);
+        }
       }
     }
 

@@ -72,6 +72,9 @@ const mockRecordFailure = vi.fn();
 const mockMarkHealthy = vi.fn();
 const mockShouldRollback = vi.fn().mockReturnValue(false);
 const mockPerformRollback = vi.fn();
+const mockIsWatchdogRollbackEnabled = vi.fn().mockReturnValue(false);
+const mockWatchdogRollbackMaxResets = vi.fn().mockReturnValue(1);
+const mockWatchdogRollbackFloorRef = vi.fn().mockReturnValue(undefined);
 const mockReadRecoveryNote = vi.fn().mockReturnValue(null);
 const mockDeleteRecoveryNote = vi.fn();
 const mockFindGitRoot = vi.fn().mockReturnValue(null);
@@ -81,6 +84,9 @@ vi.mock('../../../src/daemon/watchdog.js', () => ({
   markHealthy: mockMarkHealthy,
   shouldRollback: mockShouldRollback,
   performRollback: mockPerformRollback,
+  isWatchdogRollbackEnabled: mockIsWatchdogRollbackEnabled,
+  watchdogRollbackMaxResets: mockWatchdogRollbackMaxResets,
+  watchdogRollbackFloorRef: mockWatchdogRollbackFloorRef,
   readRecoveryNote: mockReadRecoveryNote,
   deleteRecoveryNote: mockDeleteRecoveryNote,
   findGitRoot: mockFindGitRoot,
@@ -115,8 +121,12 @@ beforeEach(() => {
   mockRecordFailure.mockClear();
   mockShouldRollback.mockReturnValue(false);
   mockPerformRollback.mockClear();
+  mockIsWatchdogRollbackEnabled.mockReturnValue(false);
+  mockWatchdogRollbackMaxResets.mockReturnValue(1);
+  mockWatchdogRollbackFloorRef.mockReturnValue(undefined);
   mockReadRecoveryNote.mockReturnValue(null);
   mockDeleteRecoveryNote.mockClear();
+  mockFindGitRoot.mockReturnValue(null);
 });
 
 describe('AgentProcess - rate-limit recovery', () => {
@@ -226,6 +236,21 @@ describe('AgentProcess - rate-limit recovery', () => {
     capturedOnExit!(1, 0);
 
     expect(mockRecordFailure).toHaveBeenCalled();
+  });
+
+  it('does not perform rollback by default when threshold trips', async () => {
+    mockHasRateLimitSignature = false;
+    mockFindGitRoot.mockReturnValue('/tmp/repo');
+    mockShouldRollback.mockReturnValue(true);
+    mockIsWatchdogRollbackEnabled.mockReturnValue(false);
+    const ap = new AgentProcess('alice', mockEnv, {});
+    await ap.start();
+
+    capturedOnExit!(1, 0);
+
+    expect(mockRecordFailure).toHaveBeenCalledWith('/tmp/test-ctx/state/alice', '/tmp/repo');
+    expect(mockShouldRollback).toHaveBeenCalledWith('/tmp/test-ctx/state/alice', '/tmp/repo');
+    expect(mockPerformRollback).not.toHaveBeenCalled();
   });
 
   it('startup prompt includes RATE-LIMIT RECOVERY when .rate-limited marker exists', async () => {
