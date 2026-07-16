@@ -23,9 +23,20 @@ describe('member contribution intake contract', () => {
     expect(contributing).toContain(
       'Array of strings listing every external API, service, or URL the skill contacts.',
     );
-    expect(pullRequestTemplate).toContain(
-      '**Type:** <!-- bug fix | feature | skill | agent template | documentation -->',
+    const supportedTypesSection = contributing
+      .split('## What Can Be Contributed')[1]
+      ?.split('\n---\n')[0];
+    const supportedTypes = Array.from(
+      supportedTypesSection?.matchAll(/^\| `([^`]+)` \|/gm) ?? [],
+      (match) => match[1],
     );
+    const templateTypes = pullRequestTemplate
+      .match(/^\*\*Type:\*\* <!-- ([^>]+) -->$/m)?.[1]
+      .split('|')
+      .map((type) => type.trim());
+
+    expect(supportedTypes).not.toHaveLength(0);
+    expect(templateTypes).toEqual(supportedTypes);
     expect(pullRequestTemplate).toContain(
       '**External services, APIs, scopes, environment variables, and permissions:**',
     );

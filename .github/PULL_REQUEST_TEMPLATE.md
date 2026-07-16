@@ -6,7 +6,7 @@ One coherent contribution per PR. Do not include private or production-repositor
 
 ## Contribution
 
-**Type:** <!-- bug fix | feature | skill | agent template | documentation -->
+**Type:** <!-- bug fix | feature | documentation | skill | agent | org -->
 
 **Problem:**
 <!-- Describe the observable problem. Separate the finding from your implementation. -->
