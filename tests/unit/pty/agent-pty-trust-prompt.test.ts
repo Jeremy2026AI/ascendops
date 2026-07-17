@@ -1,6 +1,6 @@
 // Trust-prompt auto-accept timer lifecycle.
 //
-// AgentPTY.spawn() arms two timers (5s/8s) that auto-accept Claude Code's
+// AgentPTY.spawn() arms a bounded timer schedule that auto-accepts Claude Code's
 // "trust this folder?" prompt by writing Enter. These tests lock in:
 //   1. The happy path still fires Enter when the trust prompt is visible.
 //   2. kill() cancels the timers — a stray Enter must NOT be written into a
@@ -74,6 +74,92 @@ afterEach(() => {
 });
 
 describe('AgentPTY trust-prompt auto-accept', () => {
+  it('navigates Down+Enter for the Bypass Permissions prompt', async () => {
+    const handle = makeFakePty();
+    const pty = newAgentPty(handle);
+    await pty.spawn('fresh', 'hello');
+
+    handle.emitData('Bypass Permissions\n  1. No, exit\n  2. Yes, I accept\n');
+    vi.advanceTimersByTime(5000);
+
+    expect(handle.fake.write).toHaveBeenCalledTimes(1);
+    expect(handle.fake.write).toHaveBeenCalledWith('\x1b[B\r');
+    expect(handle.fake.write).not.toHaveBeenCalledWith('\r');
+  });
+
+  it('answers a visible Bypass Permissions prompt repeatedly but caps answers at three', async () => {
+    const handle = makeFakePty();
+    const pty = newAgentPty(handle);
+    await pty.spawn('fresh', 'hello');
+
+    handle.emitData('Bypass Permissions\n  1. No, exit\n  2. Yes, I accept\n');
+    vi.advanceTimersByTime(8000);
+
+    expect(handle.fake.write.mock.calls.map((call) => call[0])).toEqual([
+      '\x1b[B\r',
+      '\x1b[B\r',
+    ]);
+
+    vi.advanceTimersByTime(24000);
+
+    expect(handle.fake.write.mock.calls.map((call) => call[0])).toEqual([
+      '\x1b[B\r',
+      '\x1b[B\r',
+      '\x1b[B\r',
+    ]);
+    expect(handle.fake.write.mock.calls.map((call) => call[0])).not.toContain('\r');
+  });
+
+  it('stops answering when the bypass dialog leaves the recent tail', async () => {
+    const handle = makeFakePty();
+    const pty = newAgentPty(handle);
+    await pty.spawn('fresh', 'hello');
+
+    handle.emitData('Bypass Permissions\n  1. No, exit\n  2. Yes, I accept\n');
+    vi.advanceTimersByTime(5000);
+    handle.emitData('x'.repeat(5000));
+    vi.advanceTimersByTime(27000);
+
+    expect(handle.fake.write.mock.calls.map((call) => call[0])).toEqual(['\x1b[B\r']);
+  });
+
+  it('strips ANSI before classifying a Bypass Permissions prompt', async () => {
+    const handle = makeFakePty();
+    const pty = newAgentPty(handle);
+    await pty.spawn('fresh', 'hello');
+
+    handle.emitData('Byp\x1b[1mass\x1b[0m Permissions\n  1. No, exit\n  2. Yes, I accept\n');
+    vi.advanceTimersByTime(5000);
+
+    expect(handle.fake.write).toHaveBeenCalledWith('\x1b[B\r');
+    expect(handle.fake.write).not.toHaveBeenCalledWith('\r');
+  });
+
+  it('never sends bare Enter when a reworded bypass gate still shows No, exit', async () => {
+    const handle = makeFakePty();
+    const pty = newAgentPty(handle);
+    await pty.spawn('fresh', 'hello');
+
+    handle.emitData('bypass permissions v2 reworded\n  1. No, exit\n  2. Yes, I accept\n');
+    vi.advanceTimersByTime(5000);
+
+    expect(handle.fake.write).toHaveBeenCalledWith('\x1b[B\r');
+    expect(handle.fake.write).not.toHaveBeenCalledWith('\r');
+  });
+
+  it('answers a bypass dialog that renders after the original 8-second window', async () => {
+    const handle = makeFakePty();
+    const pty = newAgentPty(handle);
+    await pty.spawn('fresh', 'hello');
+
+    vi.advanceTimersByTime(16000);
+    handle.emitData('Bypass Permissions\n  1. No, exit\n  2. Yes, I accept\n');
+    vi.advanceTimersByTime(4000);
+
+    expect(handle.fake.write).toHaveBeenCalledWith('\x1b[B\r');
+    expect(handle.fake.write).not.toHaveBeenCalledWith('\r');
+  });
+
   it('fires Enter at 5s when the trust prompt is visible', async () => {
     const handle = makeFakePty();
     const pty = newAgentPty(handle);
@@ -82,6 +168,7 @@ describe('AgentPTY trust-prompt auto-accept', () => {
     handle.emitData('Do you trust the files in this folder?\n  Yes, proceed\n');
     vi.advanceTimersByTime(5000);
 
+    expect(handle.fake.write).not.toHaveBeenCalledWith('\x1b[B\r');
     expect(handle.fake.write).toHaveBeenCalledWith('\r');
   });
 

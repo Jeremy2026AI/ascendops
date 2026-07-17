@@ -26,6 +26,13 @@ interface IPtySpawnOptions {
 
 type SpawnFn = (file: string, args: string[], options: IPtySpawnOptions) => IPty;
 
+const ANSI_OSC_RE = /\x1b\][^\x07]*(?:\x07|\x1b\\)/g;
+const ANSI_CSI_RE = /\x1b\[[0-?]*[ -/]*[@-~]/g;
+
+function stripAnsi(value: string): string {
+  return value.replace(ANSI_OSC_RE, '').replace(ANSI_CSI_RE, '');
+}
+
 /**
  * Manages a single Claude Code PTY session.
  * Replaces the tmux session management in agent-wrapper.sh.
@@ -44,6 +51,7 @@ export class AgentPTY {
   // Enter into the new session (the callbacks only check `this.pty`, which
   // is truthy again after a respawn).
   private trustPromptTimers: ReturnType<typeof setTimeout>[] = [];
+  private bypassAnswerCount = 0;
 
   constructor(env: CtxEnv, config: AgentConfig, logPath?: string, bootstrapPattern?: string) {
     this.env = env;
@@ -191,24 +199,33 @@ export class AgentPTY {
       }
     });
 
-    // Claude Code shows a "trust this folder?" prompt on first run in a new directory.
-    // Auto-accept by sending Enter after the prompt appears.
-    // The prompt takes ~3-5s to render; we send Enter at 5s and 8s for reliability.
-    // Skipped for runtimes that never show a trust prompt (Hermes overrides
-    // needsTrustPromptAutoAccept) — the loose "Yes"/"trust" substring match
-    // would otherwise fire a stray Enter on unrelated output.
+    // Claude Code can show two startup gates:
+    //   1. Folder trust defaults to accept, so Enter confirms it.
+    //   2. Bypass Permissions defaults to "No, exit", so bare Enter kills the process.
+    // Retry through 32s while a gate remains visible, with a hard answer cap.
+    this.bypassAnswerCount = 0;
     if (this.needsTrustPromptAutoAccept()) {
-      for (const delayMs of [5000, 8000]) {
+      for (const delayMs of [5000, 8000, 11000, 14000, 20000, 26000, 32000]) {
         const timer = setTimeout(() => {
-          if (this.pty) {
-            const recent = this.outputBuffer.getRecent();
-            if (recent.includes('trust') || recent.includes('Yes')) {
-              try {
-                this.pty.write('\r');
-              } catch {
-                // PTY torn down between the alive check and the write — ignore.
-              }
+          if (!this.pty) return;
+          const tail = stripAnsi(this.outputBuffer.getRecentTail(4096));
+          try {
+            const bypassGateVisible =
+              tail.includes('No, exit') ||
+              tail.includes('dangerously') ||
+              tail.includes('Bypass Permissions');
+            if (bypassGateVisible) {
+              if (this.bypassAnswerCount >= 3) return;
+              // Bypass Permissions defaults to exit. Move to accept, then confirm.
+              this.pty.write('\x1b[B\r');
+              this.bypassAnswerCount += 1;
+              return;
             }
+            if (tail.includes('trust') || tail.includes('Yes')) {
+              this.pty.write('\r');
+            }
+          } catch {
+            // PTY torn down between the alive check and the write. Ignore it.
           }
         }, delayMs);
         this.trustPromptTimers.push(timer);

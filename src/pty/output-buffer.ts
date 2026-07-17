@@ -232,6 +232,13 @@ export class OutputBuffer {
   }
 
   /**
+   * Get a bounded tail of recent output for prompt detection.
+   */
+  getRecentTail(maxBytes = 4096): string {
+    return this.getRecent().slice(-maxBytes);
+  }
+
+  /**
    * Search for a pattern in recent output (ANSI codes stripped).
    * Used for bootstrap detection ("permissions" text).
    */
