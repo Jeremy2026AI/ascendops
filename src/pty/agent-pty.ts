@@ -5,6 +5,10 @@ import type { AgentConfig, CtxEnv } from '../types/index.js';
 import { OutputBuffer } from './output-buffer.js';
 import { loadAdapter } from './adapters/base.js';
 import { injectMessage as injectMessageIntoPty } from './inject.js';
+import {
+  ensureBypassPromptSuppressed,
+  ensureFolderTrusted,
+} from '../utils/claude-preflight.js';
 
 // node-pty types
 interface IPty {
@@ -52,7 +56,7 @@ export class AgentPTY {
   // is truthy again after a respawn).
   private trustPromptTimers: ReturnType<typeof setTimeout>[] = [];
   private promptAnswerSent = false;
-  private promptOutputSinceAnswer = '';
+  private promptOutputCursor = 0;
   private bypassAnswerCount = 0;
 
   constructor(env: CtxEnv, config: AgentConfig, logPath?: string, bootstrapPattern?: string) {
@@ -170,6 +174,22 @@ export class AgentPTY {
     // so its env is unchanged.
     const filteredEnv = loadAdapter(this.config.vendor).envFilter(ptyEnv);
 
+    const handlesClaudeTrustPrompts = this.needsTrustPromptAutoAccept();
+    if (handlesClaudeTrustPrompts) {
+      try {
+        ensureFolderTrusted(cwd);
+      } catch (error) {
+        console.warn(`[claude-preflight] unexpected folder trust failure; spawn will continue: ${String(error)}`);
+      }
+      if (this.config.dangerously_skip_permissions !== false) {
+        try {
+          ensureBypassPromptSuppressed();
+        } catch (error) {
+          console.warn(`[claude-preflight] unexpected bypass suppression failure; spawn will continue: ${String(error)}`);
+        }
+      }
+    }
+
     this.pty = this.spawnFn!(claudeCmd, claudeArgs, {
       name: 'xterm-256color',
       cols: 200,
@@ -183,7 +203,6 @@ export class AgentPTY {
     // Set up output capture
     this.pty.onData((data: string) => {
       this.outputBuffer.push(data);
-      this.promptOutputSinceAnswer = (this.promptOutputSinceAnswer + data).slice(-4096);
     });
 
     // Set up exit handler
@@ -207,34 +226,36 @@ export class AgentPTY {
     //   2. Bypass Permissions defaults to "No, exit", so bare Enter kills the process.
     // Retry through 32s while a gate remains visible, with a hard answer cap.
     this.promptAnswerSent = false;
-    this.promptOutputSinceAnswer = '';
+    this.promptOutputCursor = this.outputBuffer.createSafeCursor();
     this.bypassAnswerCount = 0;
-    if (this.needsTrustPromptAutoAccept()) {
+    if (handlesClaudeTrustPrompts) {
       for (const delayMs of [5000, 8000, 11000, 14000, 20000, 26000, 32000]) {
         const timer = setTimeout(() => {
           if (!this.pty) return;
           const candidate = this.promptAnswerSent
-            ? this.promptOutputSinceAnswer
+            ? this.outputBuffer.getSafeTailSince(this.promptOutputCursor, 4096)
             : this.outputBuffer.getRecentTail(4096);
           const tail = stripAnsi(candidate);
           try {
             const bypassGateVisible =
-              tail.includes('No, exit') ||
-              tail.includes('dangerously') ||
-              tail.includes('Bypass Permissions');
+              tail.includes('Yes, I accept') ||
+              tail.includes('running in Bypass Permissions mode');
             if (bypassGateVisible) {
               if (this.bypassAnswerCount >= 3) return;
               // Bypass Permissions defaults to exit. Move to accept, then confirm.
               this.pty.write('\x1b[B\r');
               this.bypassAnswerCount += 1;
               this.promptAnswerSent = true;
-              this.promptOutputSinceAnswer = '';
+              this.promptOutputCursor = this.outputBuffer.createSafeCursor();
               return;
             }
-            if (tail.includes('trust') || tail.includes('Yes')) {
+            const folderTrustVisible =
+              tail.includes('Yes, I trust this folder') ||
+              tail.includes('trust the files in this folder');
+            if (folderTrustVisible) {
               this.pty.write('\r');
               this.promptAnswerSent = true;
-              this.promptOutputSinceAnswer = '';
+              this.promptOutputCursor = this.outputBuffer.createSafeCursor();
             }
           } catch {
             // PTY torn down between the alive check and the write. Ignore it.
