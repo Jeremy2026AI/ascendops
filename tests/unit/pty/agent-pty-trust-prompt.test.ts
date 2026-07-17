@@ -87,27 +87,70 @@ describe('AgentPTY trust-prompt auto-accept', () => {
     expect(handle.fake.write).not.toHaveBeenCalledWith('\r');
   });
 
-  it('answers a visible Bypass Permissions prompt repeatedly but caps answers at three', async () => {
+  it('does not retry an accepted bypass prompt without new bypass evidence', async () => {
     const handle = makeFakePty();
     const pty = newAgentPty(handle);
     await pty.spawn('fresh', 'hello');
 
     handle.emitData('Bypass Permissions\n  1. No, exit\n  2. Yes, I accept\n');
-    vi.advanceTimersByTime(8000);
+    vi.advanceTimersByTime(5000);
+    handle.emitData('Session restored. Ready for input.\n');
+    vi.advanceTimersByTime(27000);
+
+    expect(handle.fake.write.mock.calls.map((call) => call[0])).toEqual(['\x1b[B\r']);
+  });
+
+  it('uses bare Enter when folder trust follows an accepted bypass prompt', async () => {
+    const handle = makeFakePty();
+    const pty = newAgentPty(handle);
+    await pty.spawn('fresh', 'hello');
+
+    handle.emitData('Bypass Permissions\n  1. No, exit\n  2. Yes, I accept\n');
+    vi.advanceTimersByTime(5000);
+    handle.emitData('Do you trust the files in this folder?\n  Yes, proceed\n');
+    vi.advanceTimersByTime(3000);
+
+    expect(handle.fake.write.mock.calls.map((call) => call[0])).toEqual([
+      '\x1b[B\r',
+      '\r',
+    ]);
+  });
+
+  it('retries only when new output proves the bypass dialog is still current', async () => {
+    const handle = makeFakePty();
+    const pty = newAgentPty(handle);
+    await pty.spawn('fresh', 'hello');
+
+    handle.emitData('Bypass Permissions\n  1. No, exit\n  2. Yes, I accept\n');
+    vi.advanceTimersByTime(5000);
+    handle.emitData('Bypass Permissions\n  1. No, exit\n  2. Yes, I accept\n');
+    vi.advanceTimersByTime(3000);
 
     expect(handle.fake.write.mock.calls.map((call) => call[0])).toEqual([
       '\x1b[B\r',
       '\x1b[B\r',
     ]);
+  });
 
-    vi.advanceTimersByTime(24000);
+  it('caps answers at three even when the bypass dialog keeps rendering', async () => {
+    const handle = makeFakePty();
+    const pty = newAgentPty(handle);
+    await pty.spawn('fresh', 'hello');
+
+    handle.emitData('Bypass Permissions\n  1. No, exit\n  2. Yes, I accept\n');
+    vi.advanceTimersByTime(5000);
+    handle.emitData('Bypass Permissions\n  1. No, exit\n  2. Yes, I accept\n');
+    vi.advanceTimersByTime(3000);
+    handle.emitData('Bypass Permissions\n  1. No, exit\n  2. Yes, I accept\n');
+    vi.advanceTimersByTime(3000);
+    handle.emitData('Bypass Permissions\n  1. No, exit\n  2. Yes, I accept\n');
+    vi.advanceTimersByTime(21000);
 
     expect(handle.fake.write.mock.calls.map((call) => call[0])).toEqual([
       '\x1b[B\r',
       '\x1b[B\r',
       '\x1b[B\r',
     ]);
-    expect(handle.fake.write.mock.calls.map((call) => call[0])).not.toContain('\r');
   });
 
   it('stops answering when the bypass dialog leaves the recent tail', async () => {
