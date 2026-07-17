@@ -1,4 +1,4 @@
-import { join } from 'path';
+import { basename, join } from 'path';
 import { existsSync, readFileSync } from 'fs';
 import { platform } from 'os';
 import type { AgentConfig, CtxEnv } from '../types/index.js';
@@ -174,7 +174,7 @@ export class AgentPTY {
     // so its env is unchanged.
     const filteredEnv = loadAdapter(this.config.vendor).envFilter(ptyEnv);
 
-    const handlesClaudeTrustPrompts = this.needsTrustPromptAutoAccept();
+    const handlesClaudeTrustPrompts = this.isClaudeCodeRuntime();
     if (handlesClaudeTrustPrompts) {
       try {
         ensureFolderTrusted(cwd);
@@ -267,12 +267,22 @@ export class AgentPTY {
   }
 
   /**
-   * Whether this runtime shows a "trust this folder?" prompt that the
-   * daemon should auto-accept. Claude Code does; Hermes does not
-   * (HermesPTY overrides this to return false).
+   * Whether the binary this PTY will spawn is Claude Code. Derived from
+   * getBinaryName() -- the same value that decides what actually spawns -- so
+   * runtimes that override the binary (Hermes -> 'hermes', OpenCode ->
+   * 'opencode') and vendor adapters that spawn codex/gemini are excluded
+   * automatically, with no per-subclass opt-out to forget.
+   *
+   * Gates BOTH Claude-only spawn behaviors:
+   *   1. the claude-preflight config writes (~/.claude.json folder trust,
+   *      ~/.claude/settings.json bypass-prompt suppression), and
+   *   2. the trust/bypass prompt auto-accept timers, whose loose substring
+   *      match must never fire a stray keypress into a non-Claude TUI
+   *      (the hazard HermesPTY previously opted out of by override).
    */
-  protected needsTrustPromptAutoAccept(): boolean {
-    return true;
+  protected isClaudeCodeRuntime(): boolean {
+    const binary = basename(this.getBinaryName()).toLowerCase();
+    return binary === 'claude' || binary === 'claude.cmd' || binary === 'claude.exe';
   }
 
   private clearTrustPromptTimers(): void {
