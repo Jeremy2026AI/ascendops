@@ -51,6 +51,8 @@ export class AgentPTY {
   // Enter into the new session (the callbacks only check `this.pty`, which
   // is truthy again after a respawn).
   private trustPromptTimers: ReturnType<typeof setTimeout>[] = [];
+  private promptAnswerSent = false;
+  private promptOutputSinceAnswer = '';
   private bypassAnswerCount = 0;
 
   constructor(env: CtxEnv, config: AgentConfig, logPath?: string, bootstrapPattern?: string) {
@@ -181,6 +183,7 @@ export class AgentPTY {
     // Set up output capture
     this.pty.onData((data: string) => {
       this.outputBuffer.push(data);
+      this.promptOutputSinceAnswer = (this.promptOutputSinceAnswer + data).slice(-4096);
     });
 
     // Set up exit handler
@@ -203,12 +206,17 @@ export class AgentPTY {
     //   1. Folder trust defaults to accept, so Enter confirms it.
     //   2. Bypass Permissions defaults to "No, exit", so bare Enter kills the process.
     // Retry through 32s while a gate remains visible, with a hard answer cap.
+    this.promptAnswerSent = false;
+    this.promptOutputSinceAnswer = '';
     this.bypassAnswerCount = 0;
     if (this.needsTrustPromptAutoAccept()) {
       for (const delayMs of [5000, 8000, 11000, 14000, 20000, 26000, 32000]) {
         const timer = setTimeout(() => {
           if (!this.pty) return;
-          const tail = stripAnsi(this.outputBuffer.getRecentTail(4096));
+          const candidate = this.promptAnswerSent
+            ? this.promptOutputSinceAnswer
+            : this.outputBuffer.getRecentTail(4096);
+          const tail = stripAnsi(candidate);
           try {
             const bypassGateVisible =
               tail.includes('No, exit') ||
@@ -219,10 +227,14 @@ export class AgentPTY {
               // Bypass Permissions defaults to exit. Move to accept, then confirm.
               this.pty.write('\x1b[B\r');
               this.bypassAnswerCount += 1;
+              this.promptAnswerSent = true;
+              this.promptOutputSinceAnswer = '';
               return;
             }
             if (tail.includes('trust') || tail.includes('Yes')) {
               this.pty.write('\r');
+              this.promptAnswerSent = true;
+              this.promptOutputSinceAnswer = '';
             }
           } catch {
             // PTY torn down between the alive check and the write. Ignore it.
