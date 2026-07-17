@@ -10,6 +10,14 @@ export interface ClaudePreflightOptions {
   homeDir?: string;
   log?: (message: string) => void;
   write?: AtomicWriter;
+  source?: string;
+  now?: () => Date;
+}
+
+export const CLAUDE_CONSENT_FILENAME = '.claude-consent.json';
+
+export function unattendedConsentPath(installDir: string): string {
+  return join(installDir, CLAUDE_CONSENT_FILENAME);
 }
 
 function isObject(value: unknown): value is JsonObject {
@@ -82,4 +90,59 @@ export function ensureBypassPromptSuppressed(
   } catch (error) {
     return reportFailure('bypass prompt suppression update', error, log);
   }
+}
+
+export function recordUnattendedConsent(
+  installDir: string,
+  unattended: boolean,
+  options: ClaudePreflightOptions = {},
+): boolean {
+  const log = options.log ?? console.warn;
+  const write = options.write ?? atomicWriteSync;
+  const filePath = unattendedConsentPath(installDir);
+  try {
+    write(filePath, JSON.stringify({
+      unattended_bypass: unattended,
+      decided_at: (options.now ?? (() => new Date()))().toISOString(),
+      source: options.source ?? 'installer',
+    }, null, 2));
+    return true;
+  } catch (error) {
+    return reportFailure('unattended consent record update', error, log);
+  }
+}
+
+export function readUnattendedConsent(
+  installDir: string,
+  options: Pick<ClaudePreflightOptions, 'log'> = {},
+): boolean | undefined {
+  const log = options.log ?? console.warn;
+  const filePath = unattendedConsentPath(installDir);
+  try {
+    if (!existsSync(filePath)) {
+      log(`[claude-preflight] unattended consent record missing at ${filePath}; using legacy default`);
+      return undefined;
+    }
+    const parsed = readObject(filePath);
+    if (typeof parsed.unattended_bypass !== 'boolean') {
+      throw new Error(`${filePath} unattended_bypass must be true or false`);
+    }
+    return parsed.unattended_bypass;
+  } catch (error) {
+    reportFailure('unattended consent record read', error, log);
+    return undefined;
+  }
+}
+
+export function applyUnattendedConsent(
+  answerYes: boolean,
+  installDir: string,
+  options: ClaudePreflightOptions = {},
+): boolean {
+  const recorded = recordUnattendedConsent(installDir, answerYes, options);
+  if (!answerYes) return recorded;
+
+  const folderReady = ensureFolderTrusted(installDir, options);
+  const bypassReady = ensureBypassPromptSuppressed(options);
+  return recorded && folderReady && bypassReady;
 }

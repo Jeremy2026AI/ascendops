@@ -247,6 +247,9 @@ export interface AgentConfig {
    * Defaults to true (back-compat: agents run unattended). Set to false to keep
    * Claude Code's permission system engaged so the PermissionRequest hook
    * (hook-permission-telegram) gates tool use instead of everything auto-running.
+   * An explicitly present config field wins over the install-level consent
+   * record in both directions. The record supplies this value only when the
+   * field is omitted.
    * Only applies to the claude-code runtime (Hermes never passes the flag).
    */
   dangerously_skip_permissions?: boolean;

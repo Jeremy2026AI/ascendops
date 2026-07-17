@@ -224,6 +224,24 @@ describe('PR-02: add-agent --runtime codex-app-server', () => {
     expect(cfg.runtime).toBe('claude-code');
   });
 
+  it.each([false, true])('stamps unattended consent %s into a generated config', async (consent) => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    writeFileSync(
+      join(tempRoot, '.claude-consent.json'),
+      JSON.stringify({ unattended_bypass: consent, decided_at: new Date().toISOString(), source: 'test' }),
+    );
+
+    const name = consent ? 'claude-consented' : 'claude-declined';
+    await addAgentCommand.parseAsync([
+      'node', 'cli', name,
+      '--org', 'testorg', '--instance', 'pr02-test',
+    ]);
+
+    const cfg = JSON.parse(readFileSync(join(tempRoot, 'orgs', 'testorg', 'agents', name, 'config.json'), 'utf-8'));
+    expect(cfg.dangerously_skip_permissions).toBe(consent);
+  });
+
   it('scaffolds opencode from the standard agent bootstrap without codex artifacts', async () => {
     vi.spyOn(console, 'log').mockImplementation(() => {});
     vi.spyOn(console, 'error').mockImplementation(() => {});

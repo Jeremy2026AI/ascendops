@@ -8,6 +8,7 @@ import { injectMessage as injectMessageIntoPty } from './inject.js';
 import {
   ensureBypassPromptSuppressed,
   ensureFolderTrusted,
+  readUnattendedConsent,
 } from '../utils/claude-preflight.js';
 
 // node-pty types
@@ -62,6 +63,12 @@ export class AgentPTY {
   constructor(env: CtxEnv, config: AgentConfig, logPath?: string, bootstrapPattern?: string) {
     this.env = env;
     this.config = config;
+    if (config.dangerously_skip_permissions === undefined && this.isClaudeCodeRuntime()) {
+      const consent = readUnattendedConsent(env.frameworkRoot);
+      if (consent !== undefined) {
+        this.config = { ...config, dangerously_skip_permissions: consent };
+      }
+    }
     this.outputBuffer = new OutputBuffer(1000, logPath, bootstrapPattern);
   }
 
@@ -240,7 +247,7 @@ export class AgentPTY {
             const bypassGateVisible =
               tail.includes('Yes, I accept') ||
               tail.includes('running in Bypass Permissions mode');
-            if (bypassGateVisible) {
+            if (bypassGateVisible && this.config.dangerously_skip_permissions !== false) {
               if (this.bypassAnswerCount >= 3) return;
               // Bypass Permissions defaults to exit. Move to accept, then confirm.
               this.pty.write('\x1b[B\r');

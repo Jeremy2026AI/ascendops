@@ -717,34 +717,39 @@ console.log('');
 console.log('This opens Claude Code with the /onboarding wizard already running.');
 console.log('');
 
-if (commandExists('claude') && process.stdin.isTTY && process.stdout.isTTY) {
-  console.log('Claude Code warns that Bypass Permissions mode can execute potentially DANGEROUS commands.');
-  console.log('AscendOps agents run --dangerously-skip-permissions unattended.');
-  const enableUnattendedMode = await new Promise((resolve) => {
+console.log('Claude Code warns that Bypass Permissions mode can execute potentially DANGEROUS commands.');
+console.log('AscendOps agents can run --dangerously-skip-permissions unattended.');
+let enableUnattendedMode = process.env.ASCENDOPS_UNATTENDED === '1';
+if (process.stdin.isTTY && process.stdout.isTTY) {
+  enableUnattendedMode = await new Promise((resolve) => {
     process.stdout.write('Enable unattended Bypass Permissions mode? [y/N] ');
     process.stdin.once('data', (data) => resolve(/^y(?:es)?$/i.test(String(data).trim())));
   });
   console.log('');
+}
 
-  if (enableUnattendedMode) {
-    try {
-      const imported = await import(pathToFileURL(join(INSTALL_DIR, 'dist', 'claude-preflight.js')).href);
-      const preflight = imported.default ?? imported;
-      const { ensureFolderTrusted, ensureBypassPromptSuppressed } = preflight;
-      const folderReady = ensureFolderTrusted(INSTALL_DIR);
-      const bypassReady = ensureBypassPromptSuppressed();
-      if (folderReady && bypassReady) {
-        ok('Claude unattended-mode preflight configured');
-      } else {
-        warn('Claude preflight was incomplete; startup fallback handling remains enabled.');
-      }
-    } catch (error) {
-      warn(`Could not load Claude preflight; startup fallback handling remains enabled: ${error instanceof Error ? error.message : String(error)}`);
-    }
+try {
+  const imported = await import(pathToFileURL(join(INSTALL_DIR, 'dist', 'claude-preflight.js')).href);
+  const preflight = imported.default ?? imported;
+  const applied = preflight.applyUnattendedConsent(enableUnattendedMode, INSTALL_DIR, {
+    source: process.stdin.isTTY && process.stdout.isTTY
+      ? 'interactive-installer'
+      : process.env.ASCENDOPS_UNATTENDED === '1'
+        ? 'scripted-installer-opt-in'
+        : 'non-interactive-default',
+  });
+  if (!applied) {
+    warn(`FAILED to persist unattended-mode consent (${enableUnattendedMode ? 'Yes' : 'No'}). Do not rely on the displayed choice; fix the write error before starting agents.`);
+  } else if (enableUnattendedMode) {
+    ok('Claude unattended-mode consent and preflight configured');
   } else {
-    console.log('Agents must set dangerously_skip_permissions: false in config or startup will auto-accept the Claude prompts.');
-    console.log('');
+    ok('Recorded unattended-mode opt-out; generated Claude agents will keep permission gates enabled');
   }
+} catch (error) {
+  warn(`FAILED to persist unattended-mode consent: ${error instanceof Error ? error.message : String(error)}`);
+}
+
+if (commandExists('claude') && process.stdin.isTTY && process.stdout.isTTY) {
 
   console.log('Launching Claude Code and starting /onboarding...');
   console.log('');

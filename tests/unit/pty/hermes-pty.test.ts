@@ -5,6 +5,7 @@ import { homedir } from 'os';
 const preflightMocks = vi.hoisted(() => ({
   ensureFolderTrusted: vi.fn(() => true),
   ensureBypassPromptSuppressed: vi.fn(() => true),
+  readUnattendedConsent: vi.fn(() => undefined),
 }));
 
 vi.mock('../../../src/utils/claude-preflight.js', () => preflightMocks);

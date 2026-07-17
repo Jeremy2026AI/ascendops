@@ -25,6 +25,7 @@ vi.mock('fs', async () => {
 const preflightMocks = vi.hoisted(() => ({
   ensureFolderTrusted: vi.fn(() => true),
   ensureBypassPromptSuppressed: vi.fn(() => true),
+  readUnattendedConsent: vi.fn<() => boolean | undefined>(() => undefined),
 }));
 
 vi.mock('../../../src/utils/claude-preflight.js', () => preflightMocks);
@@ -102,6 +103,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   preflightMocks.ensureFolderTrusted.mockReturnValue(true);
   preflightMocks.ensureBypassPromptSuppressed.mockReturnValue(true);
+  preflightMocks.readUnattendedConsent.mockReturnValue(undefined);
 });
 
 afterEach(() => {
@@ -109,6 +111,33 @@ afterEach(() => {
 });
 
 describe('AgentPTY trust-prompt auto-accept', () => {
+  it.each([
+    { label: 'declined record', record: false, config: {}, flag: false, bypassWrite: false },
+    { label: 'accepted record', record: true, config: {}, flag: true, bypassWrite: true },
+    { label: 'no record back-compat', record: undefined, config: {}, flag: true, bypassWrite: true },
+    { label: 'explicit false beats accepted record', record: true, config: { dangerously_skip_permissions: false }, flag: false, bypassWrite: false },
+    { label: 'explicit true beats declined record', record: false, config: { dangerously_skip_permissions: true }, flag: true, bypassWrite: true },
+  ])('$label controls adapter, preflight, and bypass matcher together', async ({ record, config, flag, bypassWrite }) => {
+    preflightMocks.readUnattendedConsent.mockReturnValue(record);
+    const handle = makeFakePty();
+    const pty = new AgentPTY(TEST_ENV, { vendor: 'anthropic', ...config });
+    const spawnFn = vi.fn(() => handle.fake);
+    (pty as unknown as { spawnFn: unknown }).spawnFn = spawnFn;
+
+    await pty.spawn('fresh', 'hello');
+    const args = spawnFn.mock.calls[0][1] as string[];
+    expect(args.includes('--dangerously-skip-permissions')).toBe(flag);
+    if (flag) {
+      expect(preflightMocks.ensureBypassPromptSuppressed).toHaveBeenCalledTimes(1);
+    } else {
+      expect(preflightMocks.ensureBypassPromptSuppressed).not.toHaveBeenCalled();
+    }
+
+    handle.emitData(REAL_BYPASS_DIALOG);
+    vi.advanceTimersByTime(5000);
+    expect(handle.fake.write.mock.calls.some((call) => call[0] === '\x1b[B\r')).toBe(bypassWrite);
+  });
+
   it('runs both Claude preflight controls before spawning the default unattended process', async () => {
     const handle = makeFakePty();
     const pty = newAgentPty(handle);

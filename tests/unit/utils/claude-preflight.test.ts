@@ -4,11 +4,70 @@ import { tmpdir } from 'os';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  applyUnattendedConsent,
   ensureBypassPromptSuppressed,
   ensureFolderTrusted,
+  readUnattendedConsent,
+  recordUnattendedConsent,
+  unattendedConsentPath,
 } from '../../../src/utils/claude-preflight.js';
 
 describe('Claude preflight', () => {
+  it.each([false, true])('records and reads unattended consent = %s', (unattended) => {
+    const installDir = mkdtempSync(join(tmpdir(), 'claude-consent-'));
+
+    expect(recordUnattendedConsent(installDir, unattended, { source: 'unit-test' })).toBe(true);
+    expect(readUnattendedConsent(installDir)).toBe(unattended);
+    expect(unattendedConsentPath(installDir)).toBe(join(installDir, '.claude-consent.json'));
+    expect(JSON.parse(readFileSync(unattendedConsentPath(installDir), 'utf8'))).toMatchObject({
+      unattended_bypass: unattended,
+      source: 'unit-test',
+    });
+  });
+
+  it('returns undefined and logs for missing or corrupt consent records', () => {
+    const installDir = mkdtempSync(join(tmpdir(), 'claude-consent-'));
+    const log = vi.fn();
+
+    expect(readUnattendedConsent(installDir, { log })).toBeUndefined();
+    writeFileSync(unattendedConsentPath(installDir), '{broken');
+    expect(readUnattendedConsent(installDir, { log })).toBeUndefined();
+    expect(log).toHaveBeenCalledTimes(2);
+  });
+
+  it('applies Yes by recording consent and configuring both Claude files', () => {
+    const installDir = mkdtempSync(join(tmpdir(), 'claude-consent-'));
+    const homeDir = mkdtempSync(join(tmpdir(), 'claude-home-'));
+
+    expect(applyUnattendedConsent(true, installDir, { homeDir, source: 'installer-test' }))
+      .toBe(true);
+    expect(readUnattendedConsent(installDir)).toBe(true);
+    expect(JSON.parse(readFileSync(join(homeDir, '.claude.json'), 'utf8')))
+      .toMatchObject({ projects: { [installDir]: { hasTrustDialogAccepted: true } } });
+    expect(JSON.parse(readFileSync(join(homeDir, '.claude', 'settings.json'), 'utf8')))
+      .toMatchObject({ skipDangerousModePermissionPrompt: true });
+  });
+
+  it('applies No by recording only and never touching Claude config', () => {
+    const installDir = mkdtempSync(join(tmpdir(), 'claude-consent-'));
+    const homeDir = mkdtempSync(join(tmpdir(), 'claude-home-'));
+
+    expect(applyUnattendedConsent(false, installDir, { homeDir, source: 'installer-test' }))
+      .toBe(true);
+    expect(readUnattendedConsent(installDir)).toBe(false);
+    expect(() => readFileSync(join(homeDir, '.claude.json'), 'utf8')).toThrow();
+    expect(() => readFileSync(join(homeDir, '.claude', 'settings.json'), 'utf8')).toThrow();
+  });
+
+  it('returns false and logs when consent persistence fails', () => {
+    const installDir = mkdtempSync(join(tmpdir(), 'claude-consent-'));
+    const log = vi.fn();
+    const write = vi.fn(() => { throw new Error('consent disk full'); });
+
+    expect(applyUnattendedConsent(false, installDir, { log, write })).toBe(false);
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('consent disk full'));
+  });
+
   it('creates both Claude config files when they are absent', () => {
     const homeDir = mkdtempSync(join(tmpdir(), 'claude-preflight-'));
 

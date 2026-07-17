@@ -1,20 +1,26 @@
-import { readFileSync } from 'fs';
-import { resolve } from 'path';
+import { mkdtempSync, readFileSync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
 import { describe, expect, it } from 'vitest';
+import {
+  applyUnattendedConsent,
+  readUnattendedConsent,
+} from '../../src/utils/claude-preflight.js';
 
 describe('installer Claude unattended-mode consent', () => {
-  it('asks once and applies both preflight controls before launching onboarding', () => {
-    const source = readFileSync(resolve('install.mjs'), 'utf8');
-    const promptIndex = source.indexOf('Enable unattended Bypass Permissions mode? [y/N]');
-    const folderIndex = source.indexOf('ensureFolderTrusted(INSTALL_DIR)');
-    const bypassIndex = source.indexOf('ensureBypassPromptSuppressed()');
-    const launchIndex = source.indexOf("spawn('claude', ['/onboarding']");
+  it.each([false, true])('executes and persists the %s consent decision', (answerYes) => {
+    const installDir = mkdtempSync(join(tmpdir(), 'installer-consent-'));
+    const homeDir = mkdtempSync(join(tmpdir(), 'installer-home-'));
 
-    expect(promptIndex).toBeGreaterThan(-1);
-    expect(folderIndex).toBeGreaterThan(promptIndex);
-    expect(bypassIndex).toBeGreaterThan(folderIndex);
-    expect(launchIndex).toBeGreaterThan(bypassIndex);
-    expect(source).toContain('--dangerously-skip-permissions');
-    expect(source).toContain('dangerously_skip_permissions: false');
+    expect(applyUnattendedConsent(answerYes, installDir, { homeDir, source: 'installer' }))
+      .toBe(true);
+    expect(readUnattendedConsent(installDir)).toBe(answerYes);
+
+    if (answerYes) {
+      expect(JSON.parse(readFileSync(join(homeDir, '.claude', 'settings.json'), 'utf8')))
+        .toMatchObject({ skipDangerousModePermissionPrompt: true });
+    } else {
+      expect(() => readFileSync(join(homeDir, '.claude', 'settings.json'), 'utf8')).toThrow();
+    }
   });
 });
