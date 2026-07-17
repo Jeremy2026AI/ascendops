@@ -25,14 +25,23 @@ describe('Claude preflight', () => {
     });
   });
 
-  it('returns undefined and logs for missing or corrupt consent records', () => {
+  it('uses the legacy default only for a proven-missing consent record', () => {
     const installDir = mkdtempSync(join(tmpdir(), 'claude-consent-'));
     const log = vi.fn();
 
     expect(readUnattendedConsent(installDir, { log })).toBeUndefined();
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('using legacy default'));
+  });
+
+  it('fails closed and logs at error level for a corrupt consent record', () => {
+    const installDir = mkdtempSync(join(tmpdir(), 'claude-consent-'));
+    const log = vi.fn();
+    const error = vi.fn();
+
     writeFileSync(unattendedConsentPath(installDir), '{broken');
-    expect(readUnattendedConsent(installDir, { log })).toBeUndefined();
-    expect(log).toHaveBeenCalledTimes(2);
+    expect(readUnattendedConsent(installDir, { log, error })).toBe(false);
+    expect(log).not.toHaveBeenCalled();
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('lost consent'));
   });
 
   it('applies Yes by recording consent and configuring both Claude files', () => {
