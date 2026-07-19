@@ -1,5 +1,5 @@
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
-import { join } from 'path';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { dirname, join } from 'path';
 import { tmpdir } from 'os';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -85,7 +85,7 @@ describe('Claude preflight', () => {
     const homeDir = mkdtempSync(join(tmpdir(), 'claude-home-'));
 
     expect(applyUnattendedConsent(true, installDir, { homeDir, source: 'installer-test' }))
-      .toBe(true);
+      .toEqual({ ok: true, recorded: true, folderReady: true, bypassReady: true });
     expect(readUnattendedConsent(installDir)).toBe(true);
     expect(JSON.parse(readFileSync(join(homeDir, '.claude.json'), 'utf8')))
       .toMatchObject({ projects: { [installDir]: { hasTrustDialogAccepted: true } } });
@@ -98,7 +98,7 @@ describe('Claude preflight', () => {
     const homeDir = mkdtempSync(join(tmpdir(), 'claude-home-'));
 
     expect(applyUnattendedConsent(false, installDir, { homeDir, source: 'installer-test' }))
-      .toBe(true);
+      .toEqual({ ok: true, recorded: true });
     expect(readUnattendedConsent(installDir)).toBe(false);
     expect(() => readFileSync(join(homeDir, '.claude.json'), 'utf8')).toThrow();
     expect(() => readFileSync(join(homeDir, '.claude', 'settings.json'), 'utf8')).toThrow();
@@ -109,8 +109,108 @@ describe('Claude preflight', () => {
     const log = vi.fn();
     const write = vi.fn(() => { throw new Error('consent disk full'); });
 
-    expect(applyUnattendedConsent(false, installDir, { log, write })).toBe(false);
+    expect(applyUnattendedConsent(false, installDir, { log, write }))
+      .toEqual({ ok: false, recorded: false });
     expect(log).toHaveBeenCalledWith(expect.stringContaining('consent disk full'));
+  });
+
+  it('does not record a grant when bypass suppression fails', () => {
+    const installDir = mkdtempSync(join(tmpdir(), 'claude-consent-'));
+    const homeDir = mkdtempSync(join(tmpdir(), 'claude-home-'));
+    const settingsPath = join(homeDir, '.claude', 'settings.json');
+    const write = (filePath: string, data: string) => {
+      if (filePath === settingsPath) throw new Error('settings write failed');
+      mkdirSync(dirname(filePath), { recursive: true });
+      writeFileSync(filePath, data);
+    };
+
+    expect(applyUnattendedConsent(true, installDir, { homeDir, write }))
+      .toEqual({ ok: false, recorded: false, folderReady: true, bypassReady: false });
+    expect(existsSync(unattendedConsentPath(installDir))).toBe(false);
+  });
+
+  it('does not record a grant when folder trust fails', () => {
+    const installDir = mkdtempSync(join(tmpdir(), 'claude-consent-'));
+    const homeDir = mkdtempSync(join(tmpdir(), 'claude-home-'));
+    const trustPath = join(homeDir, '.claude.json');
+    const write = (filePath: string, data: string) => {
+      if (filePath === trustPath) throw new Error('trust write failed');
+      mkdirSync(dirname(filePath), { recursive: true });
+      writeFileSync(filePath, data);
+    };
+
+    expect(applyUnattendedConsent(true, installDir, { homeDir, write }))
+      .toEqual({ ok: false, recorded: false, folderReady: false, bypassReady: true });
+    expect(existsSync(unattendedConsentPath(installDir))).toBe(false);
+  });
+
+  it('preserves a prior consent record when grant preflight fails', () => {
+    const installDir = mkdtempSync(join(tmpdir(), 'claude-consent-'));
+    const homeDir = mkdtempSync(join(tmpdir(), 'claude-home-'));
+    const settingsPath = join(homeDir, '.claude', 'settings.json');
+    recordUnattendedConsent(installDir, false, { source: 'consent-command' });
+    const before = readFileSync(unattendedConsentPath(installDir), 'utf8');
+    const write = (filePath: string, data: string) => {
+      if (filePath === settingsPath) throw new Error('settings write failed');
+      mkdirSync(dirname(filePath), { recursive: true });
+      writeFileSync(filePath, data);
+    };
+
+    expect(applyUnattendedConsent(true, installDir, { homeDir, write }))
+      .toEqual({ ok: false, recorded: false, folderReady: true, bypassReady: false });
+    expect(readFileSync(unattendedConsentPath(installDir), 'utf8')).toBe(before);
+    expect(readUnattendedConsent(installDir)).toBe(false);
+  });
+
+  it('writes folder trust, bypass suppression, then the consent record', () => {
+    const installDir = mkdtempSync(join(tmpdir(), 'claude-consent-'));
+    const homeDir = mkdtempSync(join(tmpdir(), 'claude-home-'));
+    const writes: string[] = [];
+    const write = (filePath: string, data: string) => {
+      writes.push(filePath);
+      mkdirSync(dirname(filePath), { recursive: true });
+      writeFileSync(filePath, data);
+    };
+
+    expect(applyUnattendedConsent(true, installDir, { homeDir, write }))
+      .toEqual({ ok: true, recorded: true, folderReady: true, bypassReady: true });
+    expect(writes).toEqual([
+      join(homeDir, '.claude.json'),
+      join(homeDir, '.claude', 'settings.json'),
+      unattendedConsentPath(installDir),
+    ]);
+  });
+
+  it('reports prepared safety state without changing the prior record when recording fails', () => {
+    const installDir = mkdtempSync(join(tmpdir(), 'claude-consent-'));
+    const homeDir = mkdtempSync(join(tmpdir(), 'claude-home-'));
+    recordUnattendedConsent(installDir, false, { source: 'consent-command' });
+    const before = readFileSync(unattendedConsentPath(installDir), 'utf8');
+    const write = (filePath: string, data: string) => {
+      if (filePath === unattendedConsentPath(installDir)) throw new Error('record write failed');
+      mkdirSync(dirname(filePath), { recursive: true });
+      writeFileSync(filePath, data);
+    };
+
+    expect(applyUnattendedConsent(true, installDir, { homeDir, write }))
+      .toEqual({ ok: false, recorded: false, folderReady: true, bypassReady: true });
+    expect(readFileSync(unattendedConsentPath(installDir), 'utf8')).toBe(before);
+  });
+
+  it('records a revoke without invoking either safety preflight writer', () => {
+    const installDir = mkdtempSync(join(tmpdir(), 'claude-consent-'));
+    const homeDir = mkdtempSync(join(tmpdir(), 'claude-home-'));
+    const writes: string[] = [];
+    const write = (filePath: string, data: string) => {
+      writes.push(filePath);
+      writeFileSync(filePath, data);
+    };
+
+    expect(applyUnattendedConsent(false, installDir, { homeDir, write }))
+      .toEqual({ ok: true, recorded: true });
+    expect(writes).toEqual([unattendedConsentPath(installDir)]);
+    expect(existsSync(join(homeDir, '.claude.json'))).toBe(false);
+    expect(existsSync(join(homeDir, '.claude', 'settings.json'))).toBe(false);
   });
 
   it('creates both Claude config files when they are absent', () => {

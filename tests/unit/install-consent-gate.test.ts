@@ -72,11 +72,24 @@ describe('installer unattended consent gate', () => {
 
   it('revoke command records a genuine opt-out without applying Claude preflight', async () => {
     const installDir = mkdtempSync(join(tmpdir(), 'consent-command-'));
-    const applyUnattendedConsent = vi.fn(async () => true);
+    const applyUnattendedConsent = vi.fn(async () => ({ ok: true, recorded: true }));
 
     await expect(runConsentCommand(['--revoke'], { installDir, applyUnattendedConsent }))
       .resolves.toBe(true);
     expect(applyUnattendedConsent).toHaveBeenCalledWith(false, installDir, { source: 'consent-command' });
+  });
+
+  it.each([
+    ['grant preflight failure', ['--grant'], { ok: false, recorded: false, folderReady: false, bypassReady: true }, 'nothing recorded'],
+    ['grant record failure', ['--grant'], { ok: false, recorded: false, folderReady: true, bypassReady: true }, 'consent NOT recorded'],
+    ['revoke record failure', ['--revoke'], { ok: false, recorded: false }, 'existing grant still stands'],
+  ])('reports truthful state for %s', async (_label, args, result, message) => {
+    const applyUnattendedConsent = vi.fn(async () => result);
+
+    await expect(runConsentCommand(args, {
+      installDir: '/tmp/ascendops',
+      applyUnattendedConsent,
+    })).rejects.toThrow(message);
   });
 
   it.each([
@@ -93,7 +106,7 @@ describe('installer unattended consent gate', () => {
     copyFileSync(join(process.cwd(), 'installer', 'consent-gate.mjs'), join(installerDir, 'consent-gate.mjs'));
     writeFileSync(
       join(distDir, 'claude-preflight.js'),
-      `module.exports = { applyUnattendedConsent() { require('fs').writeFileSync(${JSON.stringify(writeMarker)}, 'called'); return true; } };\n`,
+      `module.exports = { applyUnattendedConsent() { require('fs').writeFileSync(${JSON.stringify(writeMarker)}, 'called'); return { ok: true, recorded: true }; } };\n`,
     );
 
     const result = spawnSync(process.execPath, [join(installerDir, 'consent-gate.mjs'), ...args], {
@@ -160,8 +173,8 @@ describe('installer unattended consent gate', () => {
   it.each([
     ['No', false, 'preflight import failure', vi.fn(async () => { throw new Error('missing bundle'); })],
     ['Yes', true, 'preflight import failure', vi.fn(async () => { throw new Error('missing bundle'); })],
-    ['No', false, 'consent apply failure', vi.fn(async () => ({ applyUnattendedConsent: () => false }))],
-    ['Yes', true, 'consent apply failure', vi.fn(async () => ({ applyUnattendedConsent: () => false }))],
+    ['No', false, 'consent apply failure', vi.fn(async () => ({ applyUnattendedConsent: () => ({ ok: false, recorded: false }) }))],
+    ['Yes', true, 'consent apply failure', vi.fn(async () => ({ applyUnattendedConsent: () => ({ ok: false, recorded: false, folderReady: false, bypassReady: false }) }))],
   ])('exits before onboarding when %s encounters %s', async (_choice, answerYes, _label, importPreflight) => {
     const spawnOnboarding = vi.fn();
     const exit = vi.fn();
@@ -190,7 +203,7 @@ describe('installer unattended consent gate', () => {
       answerYes,
       installDir: '/tmp/ascendops',
       source: 'test',
-      importPreflight: vi.fn(async () => ({ applyUnattendedConsent: () => true })),
+      importPreflight: vi.fn(async () => ({ applyUnattendedConsent: () => ({ ok: true, recorded: true }) })),
       spawnOnboarding,
       exit,
       reportFailure: vi.fn(),
@@ -198,5 +211,27 @@ describe('installer unattended consent gate', () => {
 
     expect(exit).not.toHaveBeenCalled();
     expect(spawnOnboarding).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['failed grant preflight', true, { ok: false, recorded: false, folderReady: true, bypassReady: false }, 'nothing recorded'],
+    ['failed grant record', true, { ok: false, recorded: false, folderReady: true, bypassReady: true }, 'consent NOT recorded'],
+    ['failed revoke record', false, { ok: false, recorded: false }, 'existing grant still stands'],
+  ])('aborts onboarding with truthful reporting after %s', async (_label, answerYes, result, message) => {
+    const spawnOnboarding = vi.fn();
+    const reportFailure = vi.fn();
+
+    await runConsentGate({
+      answerYes,
+      installDir: '/tmp/ascendops',
+      source: 'test',
+      importPreflight: vi.fn(async () => ({ applyUnattendedConsent: () => result })),
+      spawnOnboarding,
+      exit: vi.fn(),
+      reportFailure,
+    });
+
+    expect(spawnOnboarding).not.toHaveBeenCalled();
+    expect(reportFailure).toHaveBeenCalledWith(expect.stringContaining(message));
   });
 });

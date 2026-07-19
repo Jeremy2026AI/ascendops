@@ -24,6 +24,13 @@ export type UnattendedConsentState =
   | { state: 'absent' }
   | { state: 'lost' };
 
+export interface ApplyUnattendedConsentResult {
+  ok: boolean;
+  recorded: boolean;
+  folderReady?: boolean;
+  bypassReady?: boolean;
+}
+
 const DURABLE_UNATTENDED_CONSENT_SOURCES = new Set([
   'interactive-installer',
   'scripted-installer-opt-in',
@@ -176,11 +183,19 @@ export function applyUnattendedConsent(
   answerYes: boolean,
   installDir: string,
   options: ClaudePreflightOptions = {},
-): boolean {
-  const recorded = recordUnattendedConsent(installDir, answerYes, options);
-  if (!answerYes) return recorded;
+): ApplyUnattendedConsentResult {
+  // The consent record is the final durable action. Do not add work after it.
+  if (!answerYes) {
+    const recorded = recordUnattendedConsent(installDir, false, options);
+    return { ok: recorded, recorded };
+  }
 
   const folderReady = ensureFolderTrusted(installDir, options);
   const bypassReady = ensureBypassPromptSuppressed(options);
-  return recorded && folderReady && bypassReady;
+  if (!folderReady || !bypassReady) {
+    return { ok: false, recorded: false, folderReady, bypassReady };
+  }
+
+  const recorded = recordUnattendedConsent(installDir, true, options);
+  return { ok: recorded, recorded, folderReady, bypassReady };
 }

@@ -1,9 +1,10 @@
-import { mkdtempSync, writeFileSync } from 'fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
-import { join } from 'path';
+import { dirname, join } from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CtxEnv } from '../../../src/types/index.js';
 import {
+  applyUnattendedConsent,
   recordUnattendedConsent,
   unattendedConsentPath,
 } from '../../../src/utils/claude-preflight.js';
@@ -98,6 +99,40 @@ describe('AgentPTY corrupt unattended consent', () => {
     expect(capturedArgs).not.toContain('--dangerously-skip-permissions');
     expect(preflightMocks.ensureBypassPromptSuppressed).not.toHaveBeenCalled();
     expect(fakePty.write).not.toHaveBeenCalledWith('\x1b[B\r');
+  });
+
+  it('keeps a prior decline effective when a later grant preflight fails', async () => {
+    const frameworkRoot = mkdtempSync(join(tmpdir(), 'agent-consent-'));
+    const homeDir = mkdtempSync(join(tmpdir(), 'agent-consent-home-'));
+    recordUnattendedConsent(frameworkRoot, false, { source: 'consent-command' });
+    const settingsPath = join(homeDir, '.claude', 'settings.json');
+    const write = (filePath: string, data: string) => {
+      if (filePath === settingsPath) throw new Error('settings write failed');
+      mkdirSync(dirname(filePath), { recursive: true });
+      writeFileSync(filePath, data);
+    };
+
+    expect(applyUnattendedConsent(true, frameworkRoot, { homeDir, write }))
+      .toEqual({ ok: false, recorded: false, folderReady: true, bypassReady: false });
+
+    const env: CtxEnv = {
+      instanceId: 'test',
+      ctxRoot: join(frameworkRoot, '.ctx'),
+      frameworkRoot,
+      agentName: 'agent-test',
+      agentDir: frameworkRoot,
+      org: 'testorg',
+      projectRoot: frameworkRoot,
+    };
+    const fakePty = makeRespawnHandle().fake;
+    const spawnFn = vi.fn().mockReturnValue(fakePty);
+    const pty = new AgentPTY(env, { vendor: 'anthropic' });
+    (pty as unknown as { spawnFn: unknown }).spawnFn = spawnFn;
+
+    await pty.spawn('fresh', 'hello');
+
+    expect(spawnFn.mock.calls[0][1]).not.toContain('--dangerously-skip-permissions');
+    expect(preflightMocks.ensureBypassPromptSuppressed).not.toHaveBeenCalled();
   });
 
   it('fails closed when an accepted record becomes corrupt before same-instance respawn', async () => {

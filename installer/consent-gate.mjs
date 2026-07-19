@@ -58,14 +58,24 @@ export function requireConsentGateFile(installDir) {
   return filePath;
 }
 
+export function consentFailureMessage(answerYes, result) {
+  if (!answerYes) {
+    return 'Revoke NOT recorded - the existing grant still stands.';
+  }
+  if (result.folderReady !== true || result.bypassReady !== true) {
+    return 'Grant not applied, nothing recorded; previous consent state still governs.';
+  }
+  return 'Safety preflight applied but consent NOT recorded - previous state governs; on a fresh install no agents will be created until this is fixed and re-run.';
+}
+
 export async function runConsentCommand(args, { installDir, applyUnattendedConsent }) {
   const actions = args.filter((arg) => arg === '--grant' || arg === '--revoke');
   if (actions.length !== 1) {
     throw new Error('Expected exactly one of --grant or --revoke');
   }
   const command = actions[0] === '--grant';
-  const applied = await applyUnattendedConsent(command, installDir, { source: 'consent-command' });
-  if (!applied) throw new Error(`Failed to ${command ? 'grant' : 'revoke'} unattended consent`);
+  const result = await applyUnattendedConsent(command, installDir, { source: 'consent-command' });
+  if (!result.ok) throw new Error(consentFailureMessage(command, result));
   return true;
 }
 
@@ -81,9 +91,9 @@ export async function runConsentGate({
   try {
     const imported = await importPreflight();
     const preflight = imported.default ?? imported;
-    const applied = preflight.applyUnattendedConsent(answerYes, installDir, { source });
-    if (!applied) {
-      reportFailure(`FAILED to persist unattended-mode consent (${answerYes ? 'Yes' : 'No'}).`);
+    const result = preflight.applyUnattendedConsent(answerYes, installDir, { source });
+    if (!result.ok) {
+      reportFailure(consentFailureMessage(answerYes, result));
       exit(1);
       return false;
     }
