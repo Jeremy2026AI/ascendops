@@ -12,7 +12,7 @@ describe('installer Claude unattended-mode consent', () => {
     const installDir = mkdtempSync(join(tmpdir(), 'installer-consent-'));
     const homeDir = mkdtempSync(join(tmpdir(), 'installer-home-'));
 
-    expect(applyUnattendedConsent(answerYes, installDir, { homeDir, source: 'installer' }))
+    expect(applyUnattendedConsent(answerYes, installDir, { homeDir, source: 'interactive-installer' }))
       .toMatchObject({ ok: true, recorded: true });
     expect(readUnattendedConsent(installDir)).toBe(answerYes);
 

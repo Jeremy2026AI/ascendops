@@ -68,6 +68,40 @@ export function consentFailureMessage(answerYes, result) {
   return 'Safety preflight applied but consent NOT recorded - previous state governs; on a fresh install no agents will be created until this is fixed and re-run.';
 }
 
+export function installerConsentOutcome({ answerYes, source, result, installDir }) {
+  if (result.existingState === 'lost') {
+    return {
+      level: 'warn',
+      message: `Consent record at ${join(installDir, '.claude-consent.json')} is unreadable. Agents will run with permission gates engaged until it is repaired. To repair, run: node installer/consent-gate.mjs --grant (or --revoke).`,
+    };
+  }
+  if (result.preserved && result.existingValue === true) {
+    return {
+      level: 'ok',
+      message: `Existing unattended-mode consent preserved (granted ${result.existingDecidedAt}, source ${result.existingSource}); no change.`,
+    };
+  }
+  if (result.preserved && result.existingValue === false) {
+    return {
+      level: 'ok',
+      message: `Existing unattended-mode opt-out preserved (${result.existingDecidedAt}, source ${result.existingSource}); no change.`,
+    };
+  }
+  if (answerYes) {
+    return { level: 'ok', message: 'Claude unattended-mode consent and preflight configured' };
+  }
+  if (source === 'non-interactive-default') {
+    return {
+      level: 'ok',
+      message: 'No prior consent found and no interactive terminal was available. Defaulting to attended mode (permission gates on). To enable unattended mode later, run: node installer/consent-gate.mjs --grant',
+    };
+  }
+  return {
+    level: 'ok',
+    message: 'Recorded unattended-mode opt-out; generated Claude agents will keep permission gates enabled',
+  };
+}
+
 export async function runConsentCommand(args, { installDir, applyUnattendedConsent }) {
   const actions = args.filter((arg) => arg === '--grant' || arg === '--revoke');
   if (actions.length !== 1) {
@@ -76,7 +110,7 @@ export async function runConsentCommand(args, { installDir, applyUnattendedConse
   const command = actions[0] === '--grant';
   const result = await applyUnattendedConsent(command, installDir, { source: 'consent-command' });
   if (!result.ok) throw new Error(consentFailureMessage(command, result));
-  return true;
+  return result;
 }
 
 export async function runConsentGate({
@@ -88,10 +122,11 @@ export async function runConsentGate({
   exit,
   reportFailure,
 }) {
+  let result;
   try {
     const imported = await importPreflight();
     const preflight = imported.default ?? imported;
-    const result = preflight.applyUnattendedConsent(answerYes, installDir, { source });
+    result = preflight.applyUnattendedConsent(answerYes, installDir, { source });
     if (!result.ok) {
       reportFailure(consentFailureMessage(answerYes, result));
       exit(1);
@@ -104,7 +139,7 @@ export async function runConsentGate({
   }
 
   await spawnOnboarding();
-  return true;
+  return result;
 }
 
 const isDirect = process.argv[1]
@@ -114,11 +149,14 @@ if (isDirect) {
   try {
     const imported = await import(pathToFileURL(join(installDir, 'dist', 'claude-preflight.js')).href);
     const preflight = imported.default ?? imported;
-    await runConsentCommand(process.argv.slice(2), {
+    const result = await runConsentCommand(process.argv.slice(2), {
       installDir,
       applyUnattendedConsent: preflight.applyUnattendedConsent,
     });
-    console.log(`Unattended mode ${process.argv.includes('--grant') ? 'granted' : 'revoked'}.`);
+    if (!result.recorded) throw new Error('Consent command completed without recording a decision');
+    console.log(process.argv.includes('--grant')
+      ? 'Unattended mode granted; consent recorded.'
+      : 'Unattended mode revoked; consent recorded.');
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;

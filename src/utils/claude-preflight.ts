@@ -20,7 +20,7 @@ export interface ClaudePreflightOptions {
 export const CLAUDE_CONSENT_FILENAME = '.claude-consent.json';
 
 export type UnattendedConsentState =
-  | { state: 'valid'; value: boolean; source: string }
+  | { state: 'valid'; value: boolean; source: string; decidedAt: string }
   | { state: 'absent' }
   | { state: 'lost' };
 
@@ -29,6 +29,11 @@ export interface ApplyUnattendedConsentResult {
   recorded: boolean;
   folderReady?: boolean;
   bypassReady?: boolean;
+  preserved?: boolean;
+  existingState?: 'lost';
+  existingValue?: boolean;
+  existingSource?: string;
+  existingDecidedAt?: string;
 }
 
 const DURABLE_UNATTENDED_CONSENT_SOURCES = new Set([
@@ -162,7 +167,15 @@ export function readUnattendedConsentState(
     if (typeof parsed.source !== 'string' || parsed.source.length === 0) {
       throw new Error(`${filePath} source must be a non-empty string`);
     }
-    return { state: 'valid', value: parsed.unattended_bypass, source: parsed.source };
+    if (typeof parsed.decided_at !== 'string' || parsed.decided_at.length === 0) {
+      throw new Error(`${filePath} decided_at must be a non-empty string`);
+    }
+    return {
+      state: 'valid',
+      value: parsed.unattended_bypass,
+      source: parsed.source,
+      decidedAt: parsed.decided_at,
+    };
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     errorLog(`[claude-preflight] lost consent at ${filePath}; failing closed: ${detail}`);
@@ -184,6 +197,38 @@ export function applyUnattendedConsent(
   installDir: string,
   options: ClaudePreflightOptions = {},
 ): ApplyUnattendedConsentResult {
+  const source = options.source ?? 'installer';
+  if (!isDurableUnattendedConsentSource(source)) {
+    if (answerYes) {
+      return { ok: false, recorded: false };
+    }
+
+    const existing = readUnattendedConsentState(installDir, options);
+    if (existing.state === 'valid') {
+      return {
+        ok: true,
+        recorded: false,
+        preserved: true,
+        existingValue: existing.value,
+        existingSource: existing.source,
+        existingDecidedAt: existing.decidedAt,
+      };
+    }
+    if (existing.state === 'lost') {
+      (options.log ?? console.warn)(
+        `Consent record at ${unattendedConsentPath(installDir)} is unreadable. ` +
+        'Agents will run with permission gates engaged until it is repaired. ' +
+        'To repair, run: node installer/consent-gate.mjs --grant (or --revoke).',
+      );
+      return {
+        ok: true,
+        recorded: false,
+        preserved: false,
+        existingState: 'lost',
+      };
+    }
+  }
+
   // The consent record is the final durable action. Do not add work after it.
   if (!answerYes) {
     const recorded = recordUnattendedConsent(installDir, false, options);

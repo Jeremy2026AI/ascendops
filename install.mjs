@@ -767,7 +767,7 @@ const consentChoice = await consentGate.resolveInstallerConsent({
 const enableUnattendedMode = consentChoice.answerYes;
 console.log('');
 
-const consentApplied = await consentGate.runConsentGate({
+const consentResult = await consentGate.runConsentGate({
   answerYes: enableUnattendedMode,
   installDir: INSTALL_DIR,
   source: consentChoice.source,
@@ -780,10 +780,13 @@ const consentApplied = await consentGate.runConsentGate({
   },
 });
 
-if (consentApplied) {
-  if (enableUnattendedMode) {
-    ok('Claude unattended-mode consent and preflight configured');
-  } else {
-    ok('Recorded unattended-mode opt-out; generated Claude agents will keep permission gates enabled');
-  }
+if (consentResult !== false) {
+  const outcome = consentGate.installerConsentOutcome({
+    answerYes: enableUnattendedMode,
+    source: consentChoice.source,
+    result: consentResult,
+    installDir: INSTALL_DIR,
+  });
+  if (outcome.level === 'warn') warn(outcome.message);
+  else ok(outcome.message);
 }

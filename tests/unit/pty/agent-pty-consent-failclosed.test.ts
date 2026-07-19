@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { dirname, join } from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -101,6 +101,45 @@ describe('AgentPTY corrupt unattended consent', () => {
     expect(fakePty.write).not.toHaveBeenCalledWith('\x1b[B\r');
   });
 
+  it.each([
+    ['grant', true, true],
+    ['opt-out', false, false],
+  ])('preserves an existing %s through a defaulted rerun and next spawn', async (
+    _label,
+    consent,
+    expectsFlag,
+  ) => {
+    const frameworkRoot = mkdtempSync(join(tmpdir(), 'agent-consent-'));
+    recordUnattendedConsent(frameworkRoot, consent, {
+      source: consent ? 'consent-command' : 'scripted-installer-opt-out',
+    });
+    const before = readFileSync(unattendedConsentPath(frameworkRoot), 'utf8');
+
+    expect(applyUnattendedConsent(false, frameworkRoot, {
+      source: 'non-interactive-default',
+    })).toMatchObject({ ok: true, recorded: false, preserved: true, existingValue: consent });
+    expect(readFileSync(unattendedConsentPath(frameworkRoot), 'utf8')).toBe(before);
+
+    const env: CtxEnv = {
+      instanceId: 'test',
+      ctxRoot: join(frameworkRoot, '.ctx'),
+      frameworkRoot,
+      agentName: 'agent-test',
+      agentDir: frameworkRoot,
+      org: 'testorg',
+      projectRoot: frameworkRoot,
+    };
+    const fakePty = makeRespawnHandle().fake;
+    const spawnFn = vi.fn().mockReturnValue(fakePty);
+    const pty = new AgentPTY(env, { vendor: 'anthropic' });
+    (pty as unknown as { spawnFn: unknown }).spawnFn = spawnFn;
+
+    await pty.spawn('fresh', 'hello');
+
+    const args = spawnFn.mock.calls[0][1] as string[];
+    expect(args.includes('--dangerously-skip-permissions')).toBe(expectsFlag);
+  });
+
   it('keeps a prior decline effective when a later grant preflight fails', async () => {
     const frameworkRoot = mkdtempSync(join(tmpdir(), 'agent-consent-'));
     const homeDir = mkdtempSync(join(tmpdir(), 'agent-consent-home-'));
@@ -112,7 +151,7 @@ describe('AgentPTY corrupt unattended consent', () => {
       writeFileSync(filePath, data);
     };
 
-    expect(applyUnattendedConsent(true, frameworkRoot, { homeDir, write }))
+    expect(applyUnattendedConsent(true, frameworkRoot, { homeDir, write, source: 'consent-command' }))
       .toEqual({ ok: false, recorded: false, folderReady: true, bypassReady: false });
 
     const env: CtxEnv = {

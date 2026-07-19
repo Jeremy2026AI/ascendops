@@ -38,6 +38,7 @@ describe('Claude preflight', () => {
       state: 'valid',
       value: unattended,
       source: 'unit-test',
+      decidedAt: expect.any(String),
     });
     expect(unattendedConsentPath(installDir)).toBe(join(installDir, '.claude-consent.json'));
     expect(JSON.parse(readFileSync(unattendedConsentPath(installDir), 'utf8'))).toMatchObject({
@@ -84,7 +85,7 @@ describe('Claude preflight', () => {
     const installDir = mkdtempSync(join(tmpdir(), 'claude-consent-'));
     const homeDir = mkdtempSync(join(tmpdir(), 'claude-home-'));
 
-    expect(applyUnattendedConsent(true, installDir, { homeDir, source: 'installer-test' }))
+    expect(applyUnattendedConsent(true, installDir, { homeDir, source: 'interactive-installer' }))
       .toEqual({ ok: true, recorded: true, folderReady: true, bypassReady: true });
     expect(readUnattendedConsent(installDir)).toBe(true);
     expect(JSON.parse(readFileSync(join(homeDir, '.claude.json'), 'utf8')))
@@ -97,7 +98,7 @@ describe('Claude preflight', () => {
     const installDir = mkdtempSync(join(tmpdir(), 'claude-consent-'));
     const homeDir = mkdtempSync(join(tmpdir(), 'claude-home-'));
 
-    expect(applyUnattendedConsent(false, installDir, { homeDir, source: 'installer-test' }))
+    expect(applyUnattendedConsent(false, installDir, { homeDir, source: 'interactive-installer' }))
       .toEqual({ ok: true, recorded: true });
     expect(readUnattendedConsent(installDir)).toBe(false);
     expect(() => readFileSync(join(homeDir, '.claude.json'), 'utf8')).toThrow();
@@ -124,7 +125,7 @@ describe('Claude preflight', () => {
       writeFileSync(filePath, data);
     };
 
-    expect(applyUnattendedConsent(true, installDir, { homeDir, write }))
+    expect(applyUnattendedConsent(true, installDir, { homeDir, write, source: 'consent-command' }))
       .toEqual({ ok: false, recorded: false, folderReady: true, bypassReady: false });
     expect(existsSync(unattendedConsentPath(installDir))).toBe(false);
   });
@@ -139,7 +140,7 @@ describe('Claude preflight', () => {
       writeFileSync(filePath, data);
     };
 
-    expect(applyUnattendedConsent(true, installDir, { homeDir, write }))
+    expect(applyUnattendedConsent(true, installDir, { homeDir, write, source: 'consent-command' }))
       .toEqual({ ok: false, recorded: false, folderReady: false, bypassReady: true });
     expect(existsSync(unattendedConsentPath(installDir))).toBe(false);
   });
@@ -156,7 +157,7 @@ describe('Claude preflight', () => {
       writeFileSync(filePath, data);
     };
 
-    expect(applyUnattendedConsent(true, installDir, { homeDir, write }))
+    expect(applyUnattendedConsent(true, installDir, { homeDir, write, source: 'consent-command' }))
       .toEqual({ ok: false, recorded: false, folderReady: true, bypassReady: false });
     expect(readFileSync(unattendedConsentPath(installDir), 'utf8')).toBe(before);
     expect(readUnattendedConsent(installDir)).toBe(false);
@@ -172,7 +173,7 @@ describe('Claude preflight', () => {
       writeFileSync(filePath, data);
     };
 
-    expect(applyUnattendedConsent(true, installDir, { homeDir, write }))
+    expect(applyUnattendedConsent(true, installDir, { homeDir, write, source: 'consent-command' }))
       .toEqual({ ok: true, recorded: true, folderReady: true, bypassReady: true });
     expect(writes).toEqual([
       join(homeDir, '.claude.json'),
@@ -192,7 +193,7 @@ describe('Claude preflight', () => {
       writeFileSync(filePath, data);
     };
 
-    expect(applyUnattendedConsent(true, installDir, { homeDir, write }))
+    expect(applyUnattendedConsent(true, installDir, { homeDir, write, source: 'consent-command' }))
       .toEqual({ ok: false, recorded: false, folderReady: true, bypassReady: true });
     expect(readFileSync(unattendedConsentPath(installDir), 'utf8')).toBe(before);
   });
@@ -206,9 +207,115 @@ describe('Claude preflight', () => {
       writeFileSync(filePath, data);
     };
 
-    expect(applyUnattendedConsent(false, installDir, { homeDir, write }))
+    expect(applyUnattendedConsent(false, installDir, { homeDir, write, source: 'consent-command' }))
       .toEqual({ ok: true, recorded: true });
     expect(writes).toEqual([unattendedConsentPath(installDir)]);
+    expect(existsSync(join(homeDir, '.claude.json'))).toBe(false);
+    expect(existsSync(join(homeDir, '.claude', 'settings.json'))).toBe(false);
+  });
+
+  it('initializes an absent record from the non-interactive default', () => {
+    const installDir = mkdtempSync(join(tmpdir(), 'claude-consent-'));
+    const decidedAt = new Date('2026-07-19T04:00:00.000Z');
+
+    expect(applyUnattendedConsent(false, installDir, {
+      source: 'non-interactive-default',
+      now: () => decidedAt,
+    })).toEqual({ ok: true, recorded: true });
+    expect(readUnattendedConsentState(installDir)).toEqual({
+      state: 'valid',
+      value: false,
+      source: 'non-interactive-default',
+      decidedAt: decidedAt.toISOString(),
+    });
+  });
+
+  it.each([
+    ['grant', true, 'consent-command'],
+    ['opt-out', false, 'scripted-installer-opt-out'],
+  ])('preserves an existing valid %s byte-for-byte on a non-interactive default', (
+    _label,
+    value,
+    source,
+  ) => {
+    const installDir = mkdtempSync(join(tmpdir(), 'claude-consent-'));
+    const decidedAt = new Date('2026-07-19T04:01:00.000Z');
+    recordUnattendedConsent(installDir, value, { source, now: () => decidedAt });
+    const before = readFileSync(unattendedConsentPath(installDir), 'utf8');
+    const write = vi.fn();
+
+    expect(applyUnattendedConsent(false, installDir, {
+      source: 'non-interactive-default',
+      write,
+    })).toEqual({
+      ok: true,
+      recorded: false,
+      preserved: true,
+      existingValue: value,
+      existingSource: source,
+      existingDecidedAt: decidedAt.toISOString(),
+    });
+    expect(write).not.toHaveBeenCalled();
+    expect(readFileSync(unattendedConsentPath(installDir), 'utf8')).toBe(before);
+  });
+
+  it('preserves a lost record, warns with repair commands, and remains fail-closed', () => {
+    const installDir = mkdtempSync(join(tmpdir(), 'claude-consent-'));
+    const filePath = unattendedConsentPath(installDir);
+    writeFileSync(filePath, '{broken');
+    const before = readFileSync(filePath, 'utf8');
+    const log = vi.fn();
+    const error = vi.fn();
+    const write = vi.fn();
+
+    expect(applyUnattendedConsent(false, installDir, {
+      source: 'non-interactive-default',
+      log,
+      error,
+      write,
+    })).toEqual({
+      ok: true,
+      recorded: false,
+      preserved: false,
+      existingState: 'lost',
+    });
+    expect(write).not.toHaveBeenCalled();
+    expect(readFileSync(filePath, 'utf8')).toBe(before);
+    expect(readUnattendedConsent(installDir, { error: vi.fn() })).toBe(false);
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('installer/consent-gate.mjs --grant'));
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('--revoke'));
+  });
+
+  it.each([
+    ['scripted opt-out', 'scripted-installer-opt-out'],
+    ['consent command revoke', 'consent-command'],
+  ])('allows a genuine %s to replace an existing grant', (_label, source) => {
+    const installDir = mkdtempSync(join(tmpdir(), 'claude-consent-'));
+    recordUnattendedConsent(installDir, true, { source: 'consent-command' });
+
+    expect(applyUnattendedConsent(false, installDir, { source }))
+      .toEqual({ ok: true, recorded: true });
+    expect(readUnattendedConsentState(installDir)).toMatchObject({
+      state: 'valid',
+      value: false,
+      source,
+    });
+  });
+
+  it('refuses a non-genuine grant without reading or writing state', () => {
+    const installDir = mkdtempSync(join(tmpdir(), 'claude-consent-'));
+    const homeDir = mkdtempSync(join(tmpdir(), 'claude-home-'));
+    const exists = vi.fn();
+    const write = vi.fn();
+
+    expect(applyUnattendedConsent(true, installDir, {
+      source: 'non-interactive-default',
+      homeDir,
+      exists,
+      write,
+    })).toEqual({ ok: false, recorded: false });
+    expect(exists).not.toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalled();
     expect(existsSync(join(homeDir, '.claude.json'))).toBe(false);
     expect(existsSync(join(homeDir, '.claude', 'settings.json'))).toBe(false);
   });

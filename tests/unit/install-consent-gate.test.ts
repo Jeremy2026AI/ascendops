@@ -4,6 +4,7 @@ import { tmpdir } from 'os';
 import { spawnSync } from 'child_process';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  installerConsentOutcome,
   requireConsentGateFile,
   resolveInstallerConsent,
   runConsentCommand,
@@ -62,7 +63,7 @@ describe('installer unattended consent gate', () => {
     });
 
     await expect(runConsentCommand(['--grant'], { installDir, applyUnattendedConsent }))
-      .resolves.toBe(true);
+      .resolves.toMatchObject({ ok: true, recorded: true });
     expect(applyUnattendedConsent).toHaveBeenCalledWith(true, installDir, { source: 'consent-command' });
     expect(JSON.parse(readFileSync(join(installDir, '.claude-consent.json'), 'utf8')))
       .toMatchObject({ unattended_bypass: true, source: 'consent-command' });
@@ -75,7 +76,7 @@ describe('installer unattended consent gate', () => {
     const applyUnattendedConsent = vi.fn(async () => ({ ok: true, recorded: true }));
 
     await expect(runConsentCommand(['--revoke'], { installDir, applyUnattendedConsent }))
-      .resolves.toBe(true);
+      .resolves.toEqual({ ok: true, recorded: true });
     expect(applyUnattendedConsent).toHaveBeenCalledWith(false, installDir, { source: 'consent-command' });
   });
 
@@ -90,6 +91,29 @@ describe('installer unattended consent gate', () => {
       installDir: '/tmp/ascendops',
       applyUnattendedConsent,
     })).rejects.toThrow(message);
+  });
+
+  it.each([
+    ['--grant', 'Unattended mode granted; consent recorded.'],
+    ['--revoke', 'Unattended mode revoked; consent recorded.'],
+  ])('prints the exact successful consent-command result for %s', (action, message) => {
+    const installDir = mkdtempSync(join(tmpdir(), 'consent-command-cli-'));
+    const installerDir = join(installDir, 'installer');
+    const distDir = join(installDir, 'dist');
+    mkdirSync(installerDir);
+    mkdirSync(distDir);
+    copyFileSync(join(process.cwd(), 'installer', 'consent-gate.mjs'), join(installerDir, 'consent-gate.mjs'));
+    writeFileSync(
+      join(distDir, 'claude-preflight.js'),
+      'module.exports = { applyUnattendedConsent() { return { ok: true, recorded: true }; } };\n',
+    );
+
+    const result = spawnSync(process.execPath, [join(installerDir, 'consent-gate.mjs'), action], {
+      encoding: 'utf8',
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim()).toBe(message);
   });
 
   it.each([
@@ -199,7 +223,7 @@ describe('installer unattended consent gate', () => {
     const spawnOnboarding = vi.fn();
     const exit = vi.fn();
 
-    await runConsentGate({
+    await expect(runConsentGate({
       answerYes,
       installDir: '/tmp/ascendops',
       source: 'test',
@@ -207,10 +231,128 @@ describe('installer unattended consent gate', () => {
       spawnOnboarding,
       exit,
       reportFailure: vi.fn(),
-    });
+    })).resolves.toEqual({ ok: true, recorded: true });
 
     expect(exit).not.toHaveBeenCalled();
     expect(spawnOnboarding).toHaveBeenCalledTimes(1);
+  });
+
+  it('continues onboarding while preserving a lost record on a headless default', async () => {
+    const installDir = mkdtempSync(join(tmpdir(), 'lost-consent-gate-'));
+    const consentPath = join(installDir, '.claude-consent.json');
+    writeFileSync(consentPath, '{broken');
+    const spawnOnboarding = vi.fn();
+    const log = vi.fn();
+    const error = vi.fn();
+    const actual = await import('../../src/utils/claude-preflight.js');
+
+    const result = await runConsentGate({
+      answerYes: false,
+      installDir,
+      source: 'non-interactive-default',
+      importPreflight: vi.fn(async () => ({
+        applyUnattendedConsent: (answerYes, dir, options) => actual.applyUnattendedConsent(
+          answerYes,
+          dir,
+          { ...options, log, error },
+        ),
+      })),
+      spawnOnboarding,
+      exit: vi.fn(),
+      reportFailure: vi.fn(),
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      recorded: false,
+      preserved: false,
+      existingState: 'lost',
+    });
+    expect(readFileSync(consentPath, 'utf8')).toBe('{broken');
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('--grant'));
+    expect(spawnOnboarding).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    [
+      'genuine grant',
+      true,
+      'interactive-installer',
+      { ok: true, recorded: true },
+      'ok',
+      'Claude unattended-mode consent and preflight configured',
+    ],
+    [
+      'genuine opt-out',
+      false,
+      'scripted-installer-opt-out',
+      { ok: true, recorded: true },
+      'ok',
+      'Recorded unattended-mode opt-out; generated Claude agents will keep permission gates enabled',
+    ],
+    [
+      'fresh default',
+      false,
+      'non-interactive-default',
+      { ok: true, recorded: true },
+      'ok',
+      'No prior consent found and no interactive terminal was available. Defaulting to attended mode (permission gates on). To enable unattended mode later, run: node installer/consent-gate.mjs --grant',
+    ],
+    [
+      'preserved grant',
+      false,
+      'non-interactive-default',
+      {
+        ok: true,
+        recorded: false,
+        preserved: true,
+        existingValue: true,
+        existingSource: 'consent-command',
+        existingDecidedAt: '2026-07-19T04:01:00.000Z',
+      },
+      'ok',
+      'Existing unattended-mode consent preserved (granted 2026-07-19T04:01:00.000Z, source consent-command); no change.',
+    ],
+    [
+      'preserved opt-out',
+      false,
+      'non-interactive-default',
+      {
+        ok: true,
+        recorded: false,
+        preserved: true,
+        existingValue: false,
+        existingSource: 'scripted-installer-opt-out',
+        existingDecidedAt: '2026-07-19T04:02:00.000Z',
+      },
+      'ok',
+      'Existing unattended-mode opt-out preserved (2026-07-19T04:02:00.000Z, source scripted-installer-opt-out); no change.',
+    ],
+    [
+      'lost record',
+      false,
+      'non-interactive-default',
+      { ok: true, recorded: false, preserved: false, existingState: 'lost' },
+      'warn',
+      'Consent record at /tmp/ascendops/.claude-consent.json is unreadable. Agents will run with permission gates engaged until it is repaired. To repair, run: node installer/consent-gate.mjs --grant (or --revoke).',
+    ],
+  ])('reports the exact installer outcome for %s', (
+    _label,
+    answerYes,
+    source,
+    result,
+    level,
+    message,
+  ) => {
+    expect(installerConsentOutcome({
+      answerYes,
+      source,
+      result,
+      installDir: '/tmp/ascendops',
+    })).toEqual({ level, message });
+    if (result.preserved || result.existingState === 'lost') {
+      expect(message).not.toContain('Recorded unattended-mode opt-out');
+    }
   });
 
   it.each([
