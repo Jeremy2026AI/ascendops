@@ -1,4 +1,4 @@
-import { createReadStream, createWriteStream, existsSync, openSync } from 'fs';
+import { createReadStream, createWriteStream, existsSync, openSync, realpathSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { createInterface } from 'readline/promises';
@@ -59,8 +59,11 @@ export function requireConsentGateFile(installDir) {
 }
 
 export async function runConsentCommand(args, { installDir, applyUnattendedConsent }) {
-  const command = args.includes('--grant') ? true : args.includes('--revoke') ? false : undefined;
-  if (command === undefined) throw new Error('Expected --grant or --revoke');
+  const actions = args.filter((arg) => arg === '--grant' || arg === '--revoke');
+  if (actions.length !== 1) {
+    throw new Error('Expected exactly one of --grant or --revoke');
+  }
+  const command = actions[0] === '--grant';
   const applied = await applyUnattendedConsent(command, installDir, { source: 'consent-command' });
   if (!applied) throw new Error(`Failed to ${command ? 'grant' : 'revoke'} unattended consent`);
   return true;
@@ -94,7 +97,8 @@ export async function runConsentGate({
   return true;
 }
 
-const isDirect = process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url;
+const isDirect = process.argv[1]
+  && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
 if (isDirect) {
   const installDir = dirname(dirname(fileURLToPath(import.meta.url)));
   try {

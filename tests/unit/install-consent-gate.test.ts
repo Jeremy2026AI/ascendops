@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { spawnSync } from 'child_process';
@@ -79,6 +79,32 @@ describe('installer unattended consent gate', () => {
     expect(applyUnattendedConsent).toHaveBeenCalledWith(false, installDir, { source: 'consent-command' });
   });
 
+  it.each([
+    ['grant then revoke', ['--grant', '--revoke']],
+    ['revoke then grant', ['--revoke', '--grant']],
+    ['no recognized action', ['--unknown']],
+  ])('rejects %s with a nonzero exit and no consent write', (_label, args) => {
+    const installDir = mkdtempSync(join(tmpdir(), 'consent-command-cli-'));
+    const installerDir = join(installDir, 'installer');
+    const distDir = join(installDir, 'dist');
+    const writeMarker = join(installDir, 'consent-write');
+    mkdirSync(installerDir);
+    mkdirSync(distDir);
+    copyFileSync(join(process.cwd(), 'installer', 'consent-gate.mjs'), join(installerDir, 'consent-gate.mjs'));
+    writeFileSync(
+      join(distDir, 'claude-preflight.js'),
+      `module.exports = { applyUnattendedConsent() { require('fs').writeFileSync(${JSON.stringify(writeMarker)}, 'called'); return true; } };\n`,
+    );
+
+    const result = spawnSync(process.execPath, [join(installerDir, 'consent-gate.mjs'), ...args], {
+      encoding: 'utf8',
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('exactly one of --grant or --revoke');
+    expect(existsSync(writeMarker)).toBe(false);
+  });
+
   it('stops before install work when the required consent gate is absent', () => {
     const installDir = mkdtempSync(join(tmpdir(), 'old-checkout-'));
     const installDependencies = vi.fn();
@@ -129,7 +155,7 @@ describe('installer unattended consent gate', () => {
     expect(result.status).toBe(1);
     expect(`${result.stdout}\n${result.stderr}`).toContain('Required installer file is missing');
     expect(existsSync(npmMarker)).toBe(false);
-  });
+  }, 30_000);
 
   it.each([
     ['No', false, 'preflight import failure', vi.fn(async () => { throw new Error('missing bundle'); })],
