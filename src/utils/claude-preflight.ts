@@ -19,6 +19,22 @@ export interface ClaudePreflightOptions {
 
 export const CLAUDE_CONSENT_FILENAME = '.claude-consent.json';
 
+export type UnattendedConsentState =
+  | { state: 'valid'; value: boolean; source: string }
+  | { state: 'absent' }
+  | { state: 'lost' };
+
+const DURABLE_UNATTENDED_CONSENT_SOURCES = new Set([
+  'interactive-installer',
+  'scripted-installer-opt-in',
+  'scripted-installer-opt-out',
+  'consent-command',
+]);
+
+export function isDurableUnattendedConsentSource(source: string): boolean {
+  return DURABLE_UNATTENDED_CONSENT_SOURCES.has(source);
+}
+
 export function unattendedConsentPath(installDir: string): string {
   return join(installDir, CLAUDE_CONSENT_FILENAME);
 }
@@ -115,10 +131,10 @@ export function recordUnattendedConsent(
   }
 }
 
-export function readUnattendedConsent(
+export function readUnattendedConsentState(
   installDir: string,
   options: Pick<ClaudePreflightOptions, 'log' | 'error' | 'exists' | 'read'> = {},
-): boolean | undefined {
+): UnattendedConsentState {
   const log = options.log ?? console.warn;
   const errorLog = options.error ?? console.error;
   const exists = options.exists ?? existsSync;
@@ -127,7 +143,7 @@ export function readUnattendedConsent(
   try {
     if (!exists(filePath)) {
       log(`[claude-preflight] unattended consent record missing at ${filePath}; using legacy default`);
-      return undefined;
+      return { state: 'absent' };
     }
     const parsed: unknown = JSON.parse(read(filePath));
     if (!isObject(parsed)) {
@@ -136,12 +152,24 @@ export function readUnattendedConsent(
     if (typeof parsed.unattended_bypass !== 'boolean') {
       throw new Error(`${filePath} unattended_bypass must be true or false`);
     }
-    return parsed.unattended_bypass;
+    if (typeof parsed.source !== 'string' || parsed.source.length === 0) {
+      throw new Error(`${filePath} source must be a non-empty string`);
+    }
+    return { state: 'valid', value: parsed.unattended_bypass, source: parsed.source };
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     errorLog(`[claude-preflight] lost consent at ${filePath}; failing closed: ${detail}`);
-    return false;
+    return { state: 'lost' };
   }
+}
+
+export function readUnattendedConsent(
+  installDir: string,
+  options: Pick<ClaudePreflightOptions, 'log' | 'error' | 'exists' | 'read'> = {},
+): boolean | undefined {
+  const result = readUnattendedConsentState(installDir, options);
+  if (result.state === 'valid') return result.value;
+  return result.state === 'absent' ? undefined : false;
 }
 
 export function applyUnattendedConsent(

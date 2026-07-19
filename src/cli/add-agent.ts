@@ -6,7 +6,10 @@ import { OrgContext } from '../types';
 import { validateAgentName, validateOrgName } from '../utils/validate';
 import { atomicWriteSync } from '../utils/atomic';
 import { materializeOnboardingSkill } from './onboarding-skill';
-import { readUnattendedConsent } from '../utils/claude-preflight';
+import {
+  isDurableUnattendedConsentSource,
+  readUnattendedConsentState,
+} from '../utils/claude-preflight';
 
 const VALID_RUNTIMES = ['claude-code', 'hermes', 'codex-app-server', 'opencode'] as const;
 type RuntimeKind = typeof VALID_RUNTIMES[number];
@@ -196,10 +199,12 @@ export const addAgentCommand = new Command('add-agent')
           changed = true;
         }
         if (existingCfg.dangerously_skip_permissions === undefined) {
-          const consent = readUnattendedConsent(projectRoot);
-          if (consent !== undefined) {
-            existingCfg.dangerously_skip_permissions = consent;
+          const consent = readUnattendedConsentState(projectRoot);
+          if (consent.state === 'valid' && isDurableUnattendedConsentSource(consent.source)) {
+            existingCfg.dangerously_skip_permissions = consent.value;
             changed = true;
+          } else if (consent.state === 'lost') {
+            console.error('Warning: unattended consent record is unreadable; generated config remains unset. Repair consent with installer/consent-gate.mjs --grant or --revoke.');
           }
         }
         if (changed) {

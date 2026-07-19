@@ -7,17 +7,38 @@ import {
   applyUnattendedConsent,
   ensureBypassPromptSuppressed,
   ensureFolderTrusted,
+  isDurableUnattendedConsentSource,
   readUnattendedConsent,
+  readUnattendedConsentState,
   recordUnattendedConsent,
   unattendedConsentPath,
 } from '../../../src/utils/claude-preflight.js';
 
 describe('Claude preflight', () => {
+  it.each([
+    'interactive-installer',
+    'scripted-installer-opt-in',
+    'scripted-installer-opt-out',
+    'consent-command',
+  ])('classifies %s as a durable decision source', (source) => {
+    expect(isDurableUnattendedConsentSource(source)).toBe(true);
+  });
+
+  it.each(['non-interactive-default', 'installer', 'unknown'])
+    ('does not classify %s as a durable decision source', (source) => {
+      expect(isDurableUnattendedConsentSource(source)).toBe(false);
+    });
+
   it.each([false, true])('records and reads unattended consent = %s', (unattended) => {
     const installDir = mkdtempSync(join(tmpdir(), 'claude-consent-'));
 
     expect(recordUnattendedConsent(installDir, unattended, { source: 'unit-test' })).toBe(true);
     expect(readUnattendedConsent(installDir)).toBe(unattended);
+    expect(readUnattendedConsentState(installDir)).toEqual({
+      state: 'valid',
+      value: unattended,
+      source: 'unit-test',
+    });
     expect(unattendedConsentPath(installDir)).toBe(join(installDir, '.claude-consent.json'));
     expect(JSON.parse(readFileSync(unattendedConsentPath(installDir), 'utf8'))).toMatchObject({
       unattended_bypass: unattended,
@@ -30,6 +51,7 @@ describe('Claude preflight', () => {
     const log = vi.fn();
 
     expect(readUnattendedConsent(installDir, { log })).toBeUndefined();
+    expect(readUnattendedConsentState(installDir, { log })).toEqual({ state: 'absent' });
     expect(log).toHaveBeenCalledWith(expect.stringContaining('using legacy default'));
   });
 
@@ -40,6 +62,7 @@ describe('Claude preflight', () => {
 
     writeFileSync(unattendedConsentPath(installDir), '{broken');
     expect(readUnattendedConsent(installDir, { log, error })).toBe(false);
+    expect(readUnattendedConsentState(installDir, { log, error })).toEqual({ state: 'lost' });
     expect(log).not.toHaveBeenCalled();
     expect(error).toHaveBeenCalledWith(expect.stringContaining('lost consent'));
   });
@@ -48,6 +71,7 @@ describe('Claude preflight', () => {
     ['existence check failure', { exists: () => { throw new Error('stat denied'); } }],
     ['read failure', { exists: () => true, read: () => { throw new Error('read denied'); } }],
     ['wrong shape', { exists: () => true, read: () => '{"unattended_bypass":"yes"}' }],
+    ['missing source', { exists: () => true, read: () => '{"unattended_bypass":true}' }],
   ])('fails closed on %s', (_label, io) => {
     const installDir = mkdtempSync(join(tmpdir(), 'claude-consent-'));
     const error = vi.fn();
