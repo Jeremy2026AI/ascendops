@@ -103,7 +103,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   preflightMocks.ensureFolderTrusted.mockReturnValue(true);
   preflightMocks.ensureBypassPromptSuppressed.mockReturnValue(true);
-  preflightMocks.readUnattendedConsent.mockReturnValue(undefined);
+  preflightMocks.readUnattendedConsent.mockReset().mockReturnValue(undefined);
 });
 
 afterEach(() => {
@@ -136,6 +136,73 @@ describe('AgentPTY trust-prompt auto-accept', () => {
     handle.emitData(REAL_BYPASS_DIALOG);
     vi.advanceTimersByTime(5000);
     expect(handle.fake.write.mock.calls.some((call) => call[0] === '\x1b[B\r')).toBe(bypassWrite);
+  });
+
+  it('re-resolves accepted consent as fail-closed on the next spawn of the same instance', async () => {
+    preflightMocks.readUnattendedConsent.mockReturnValue(true);
+    const first = makeFakePty();
+    const pty = newAgentPty(first);
+    const firstSpawn = vi.fn(() => first.fake);
+    (pty as unknown as { spawnFn: unknown }).spawnFn = firstSpawn;
+
+    await pty.spawn('fresh', 'first');
+    expect((firstSpawn.mock.calls[0][1] as string[])).toContain('--dangerously-skip-permissions');
+    first.emitExit(0);
+
+    vi.clearAllMocks();
+    preflightMocks.readUnattendedConsent.mockReturnValue(false);
+    const second = makeFakePty();
+    const secondSpawn = vi.fn(() => second.fake);
+    (pty as unknown as { spawnFn: unknown }).spawnFn = secondSpawn;
+    await pty.spawn('fresh', 'second');
+    second.emitData(REAL_BYPASS_DIALOG);
+    vi.advanceTimersByTime(32000);
+
+    expect((secondSpawn.mock.calls[0][1] as string[])).not.toContain('--dangerously-skip-permissions');
+    expect(preflightMocks.ensureBypassPromptSuppressed).not.toHaveBeenCalled();
+    expect(second.fake.write).not.toHaveBeenCalledWith('\x1b[B\r');
+    expect(preflightMocks.readUnattendedConsent).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-resolves declined consent as accepted on the next spawn of the same instance', async () => {
+    preflightMocks.readUnattendedConsent.mockReturnValue(false);
+    const first = makeFakePty();
+    const pty = newAgentPty(first);
+    const firstSpawn = vi.fn(() => first.fake);
+    (pty as unknown as { spawnFn: unknown }).spawnFn = firstSpawn;
+
+    await pty.spawn('fresh', 'first');
+    expect((firstSpawn.mock.calls[0][1] as string[])).not.toContain('--dangerously-skip-permissions');
+    first.emitExit(0);
+
+    preflightMocks.readUnattendedConsent.mockReturnValue(true);
+    const second = makeFakePty();
+    const secondSpawn = vi.fn(() => second.fake);
+    (pty as unknown as { spawnFn: unknown }).spawnFn = secondSpawn;
+    await pty.spawn('fresh', 'second');
+
+    expect((secondSpawn.mock.calls[0][1] as string[])).toContain('--dangerously-skip-permissions');
+    expect(preflightMocks.readUnattendedConsent).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([true, false])('keeps explicit %s sticky without reading consent across respawns', async (explicit) => {
+    preflightMocks.readUnattendedConsent.mockReturnValue(!explicit);
+    const first = makeFakePty();
+    const pty = newAgentPty(first, { vendor: 'anthropic', dangerously_skip_permissions: explicit });
+    const firstSpawn = vi.fn(() => first.fake);
+    (pty as unknown as { spawnFn: unknown }).spawnFn = firstSpawn;
+
+    await pty.spawn('fresh', 'first');
+    first.emitExit(0);
+
+    const second = makeFakePty();
+    const secondSpawn = vi.fn(() => second.fake);
+    (pty as unknown as { spawnFn: unknown }).spawnFn = secondSpawn;
+    await pty.spawn('fresh', 'second');
+
+    expect((firstSpawn.mock.calls[0][1] as string[]).includes('--dangerously-skip-permissions')).toBe(explicit);
+    expect((secondSpawn.mock.calls[0][1] as string[]).includes('--dangerously-skip-permissions')).toBe(explicit);
+    expect(preflightMocks.readUnattendedConsent).not.toHaveBeenCalled();
   });
 
   it('runs both Claude preflight controls before spawning the default unattended process', async () => {

@@ -77,11 +77,11 @@ export class AgentPTY {
       throw new Error('PTY already spawned. Kill first.');
     }
 
-    if (this.config.dangerously_skip_permissions === undefined && this.isClaudeCodeRuntime()) {
-      const consent = readUnattendedConsent(this.env.frameworkRoot);
-      if (consent !== undefined) {
-        this.config = { ...this.config, dangerously_skip_permissions: consent };
-      }
+    const explicitSkip = this.config.dangerously_skip_permissions;
+    let effectiveSkip = explicitSkip;
+    if (explicitSkip === undefined && this.isClaudeCodeRuntime()) {
+      // Derived state must never be written into the store that distinguishes explicit from absent.
+      effectiveSkip = readUnattendedConsent(this.env.frameworkRoot);
     }
 
     // Lazy-load node-pty (native addon)
@@ -172,7 +172,10 @@ export class AgentPTY {
     // env is passed natively via node-pty options; no bash export commands required.
     // On Windows, npm global installs create .cmd wrappers, not .exe binaries.
     // node-pty's CreateProcess requires the exact wrapper name to resolve correctly.
-    const claudeArgs = this.buildClaudeArgs(mode, prompt);
+    const effectiveConfig = effectiveSkip === undefined
+      ? this.config
+      : { ...this.config, dangerously_skip_permissions: effectiveSkip };
+    const claudeArgs = this.buildClaudeArgs(mode, prompt, effectiveConfig);
     const claudeCmd = this.getBinaryName();
 
     // Apply vendor adapter's env filter — strips CLAUDE_* env vars before
@@ -189,7 +192,7 @@ export class AgentPTY {
       } catch (error) {
         console.warn(`[claude-preflight] unexpected folder trust failure; spawn will continue: ${String(error)}`);
       }
-      if (this.config.dangerously_skip_permissions !== false) {
+      if (effectiveSkip !== false) {
         try {
           ensureBypassPromptSuppressed();
         } catch (error) {
@@ -248,7 +251,7 @@ export class AgentPTY {
             const bypassGateVisible =
               tail.includes('Yes, I accept') ||
               tail.includes('running in Bypass Permissions mode');
-            if (bypassGateVisible && this.config.dangerously_skip_permissions !== false) {
+            if (bypassGateVisible && effectiveSkip !== false) {
               if (this.bypassAnswerCount >= 3) return;
               // Bypass Permissions defaults to exit. Move to accept, then confirm.
               this.pty.write('\x1b[B\r');
@@ -340,9 +343,13 @@ export class AgentPTY {
    * Protected so HermesPTY can override this for its own spawn args.
    * Default delegates to the configured vendor adapter (anthropic by default).
    */
-  protected buildClaudeArgs(mode: 'fresh' | 'continue', prompt: string): string[] {
-    const adapter = loadAdapter(this.config.vendor);
-    return adapter.buildArgs(mode, prompt, { config: this.config, env: this.env });
+  protected buildClaudeArgs(
+    mode: 'fresh' | 'continue',
+    prompt: string,
+    config: AgentConfig = this.config,
+  ): string[] {
+    const adapter = loadAdapter(config.vendor);
+    return adapter.buildArgs(mode, prompt, { config, env: this.env });
   }
 
   /**
