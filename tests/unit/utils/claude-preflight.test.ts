@@ -44,6 +44,18 @@ describe('Claude preflight', () => {
     expect(error).toHaveBeenCalledWith(expect.stringContaining('lost consent'));
   });
 
+  it.each([
+    ['existence check failure', { exists: () => { throw new Error('stat denied'); } }],
+    ['read failure', { exists: () => true, read: () => { throw new Error('read denied'); } }],
+    ['wrong shape', { exists: () => true, read: () => '{"unattended_bypass":"yes"}' }],
+  ])('fails closed on %s', (_label, io) => {
+    const installDir = mkdtempSync(join(tmpdir(), 'claude-consent-'));
+    const error = vi.fn();
+
+    expect(readUnattendedConsent(installDir, { ...io, error })).toBe(false);
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('lost consent'));
+  });
+
   it('applies Yes by recording consent and configuring both Claude files', () => {
     const installDir = mkdtempSync(join(tmpdir(), 'claude-consent-'));
     const homeDir = mkdtempSync(join(tmpdir(), 'claude-home-'));

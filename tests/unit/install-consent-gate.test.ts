@@ -3,15 +3,17 @@ import { runConsentGate } from '../../installer/consent-gate.mjs';
 
 describe('installer unattended consent gate', () => {
   it.each([
-    ['preflight import failure', vi.fn(async () => { throw new Error('missing bundle'); })],
-    ['consent apply failure', vi.fn(async () => ({ applyUnattendedConsent: () => false }))],
-  ])('exits before onboarding on %s', async (_label, importPreflight) => {
+    ['No', false, 'preflight import failure', vi.fn(async () => { throw new Error('missing bundle'); })],
+    ['Yes', true, 'preflight import failure', vi.fn(async () => { throw new Error('missing bundle'); })],
+    ['No', false, 'consent apply failure', vi.fn(async () => ({ applyUnattendedConsent: () => false }))],
+    ['Yes', true, 'consent apply failure', vi.fn(async () => ({ applyUnattendedConsent: () => false }))],
+  ])('exits before onboarding when %s encounters %s', async (_choice, answerYes, _label, importPreflight) => {
     const spawnOnboarding = vi.fn();
     const exit = vi.fn();
     const reportFailure = vi.fn();
 
     await runConsentGate({
-      answerYes: false,
+      answerYes,
       installDir: '/tmp/ascendops',
       source: 'test',
       importPreflight,

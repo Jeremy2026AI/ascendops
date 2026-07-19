@@ -728,28 +728,8 @@ if (process.stdin.isTTY && process.stdout.isTTY) {
   console.log('');
 }
 
-try {
-  const imported = await import(pathToFileURL(join(INSTALL_DIR, 'dist', 'claude-preflight.js')).href);
-  const preflight = imported.default ?? imported;
-  const applied = preflight.applyUnattendedConsent(enableUnattendedMode, INSTALL_DIR, {
-    source: process.stdin.isTTY && process.stdout.isTTY
-      ? 'interactive-installer'
-      : process.env.ASCENDOPS_UNATTENDED === '1'
-        ? 'scripted-installer-opt-in'
-        : 'non-interactive-default',
-  });
-  if (!applied) {
-    warn(`FAILED to persist unattended-mode consent (${enableUnattendedMode ? 'Yes' : 'No'}). Do not rely on the displayed choice; fix the write error before starting agents.`);
-  } else if (enableUnattendedMode) {
-    ok('Claude unattended-mode consent and preflight configured');
-  } else {
-    ok('Recorded unattended-mode opt-out; generated Claude agents will keep permission gates enabled');
-  }
-} catch (error) {
-  warn(`FAILED to persist unattended-mode consent: ${error instanceof Error ? error.message : String(error)}`);
-}
-
-if (commandExists('claude') && process.stdin.isTTY && process.stdout.isTTY) {
+const spawnOnboarding = () => {
+  if (!commandExists('claude') || !process.stdin.isTTY || !process.stdout.isTTY) return;
 
   console.log('Launching Claude Code and starting /onboarding...');
   console.log('');
@@ -766,4 +746,39 @@ if (commandExists('claude') && process.stdin.isTTY && process.stdout.isTTY) {
   claudeProc.on('exit', (code) => {
     process.exit(code ?? 0);
   });
+};
+
+let consentGate;
+try {
+  const imported = await import(pathToFileURL(join(INSTALL_DIR, 'installer', 'consent-gate.mjs')).href);
+  consentGate = imported.runConsentGate;
+} catch (error) {
+  console.error(`${RED}  ✗${R} FAILED to load the unattended-consent gate: ${error instanceof Error ? error.message : String(error)}`);
+  console.error('    Installation stopped before onboarding. Restore the installer files and rerun install.mjs.');
+  process.exit(1);
+}
+
+const consentApplied = await consentGate({
+  answerYes: enableUnattendedMode,
+  installDir: INSTALL_DIR,
+  source: process.stdin.isTTY && process.stdout.isTTY
+    ? 'interactive-installer'
+    : process.env.ASCENDOPS_UNATTENDED === '1'
+      ? 'scripted-installer-opt-in'
+      : 'non-interactive-default',
+  importPreflight: () => import(pathToFileURL(join(INSTALL_DIR, 'dist', 'claude-preflight.js')).href),
+  spawnOnboarding,
+  exit: (code) => process.exit(code),
+  reportFailure: (message) => {
+    console.error(`${RED}  ✗${R} ${message}`);
+    console.error('    Installation stopped before onboarding. Fix consent-file access, then rerun install.mjs.');
+  },
+});
+
+if (consentApplied) {
+  if (enableUnattendedMode) {
+    ok('Claude unattended-mode consent and preflight configured');
+  } else {
+    ok('Recorded unattended-mode opt-out; generated Claude agents will keep permission gates enabled');
+  }
 }

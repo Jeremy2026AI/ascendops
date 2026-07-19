@@ -63,12 +63,6 @@ export class AgentPTY {
   constructor(env: CtxEnv, config: AgentConfig, logPath?: string, bootstrapPattern?: string) {
     this.env = env;
     this.config = config;
-    if (config.dangerously_skip_permissions === undefined && this.isClaudeCodeRuntime()) {
-      const consent = readUnattendedConsent(env.frameworkRoot);
-      if (consent !== undefined) {
-        this.config = { ...config, dangerously_skip_permissions: consent };
-      }
-    }
     this.outputBuffer = new OutputBuffer(1000, logPath, bootstrapPattern);
   }
 
@@ -81,6 +75,13 @@ export class AgentPTY {
   async spawn(mode: 'fresh' | 'continue', prompt: string): Promise<void> {
     if (this.pty) {
       throw new Error('PTY already spawned. Kill first.');
+    }
+
+    if (this.config.dangerously_skip_permissions === undefined && this.isClaudeCodeRuntime()) {
+      const consent = readUnattendedConsent(this.env.frameworkRoot);
+      if (consent !== undefined) {
+        this.config = { ...this.config, dangerously_skip_permissions: consent };
+      }
     }
 
     // Lazy-load node-pty (native addon)

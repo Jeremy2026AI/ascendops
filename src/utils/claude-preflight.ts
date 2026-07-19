@@ -9,7 +9,10 @@ type AtomicWriter = (filePath: string, data: string) => void;
 export interface ClaudePreflightOptions {
   homeDir?: string;
   log?: (message: string) => void;
+  error?: (message: string) => void;
   write?: AtomicWriter;
+  exists?: (filePath: string) => boolean;
+  read?: (filePath: string) => string;
   source?: string;
   now?: () => Date;
 }
@@ -114,23 +117,30 @@ export function recordUnattendedConsent(
 
 export function readUnattendedConsent(
   installDir: string,
-  options: Pick<ClaudePreflightOptions, 'log'> = {},
+  options: Pick<ClaudePreflightOptions, 'log' | 'error' | 'exists' | 'read'> = {},
 ): boolean | undefined {
   const log = options.log ?? console.warn;
+  const errorLog = options.error ?? console.error;
+  const exists = options.exists ?? existsSync;
+  const read = options.read ?? ((filePath: string) => readFileSync(filePath, 'utf8'));
   const filePath = unattendedConsentPath(installDir);
   try {
-    if (!existsSync(filePath)) {
+    if (!exists(filePath)) {
       log(`[claude-preflight] unattended consent record missing at ${filePath}; using legacy default`);
       return undefined;
     }
-    const parsed = readObject(filePath);
+    const parsed: unknown = JSON.parse(read(filePath));
+    if (!isObject(parsed)) {
+      throw new Error(`${filePath} does not contain a JSON object`);
+    }
     if (typeof parsed.unattended_bypass !== 'boolean') {
       throw new Error(`${filePath} unattended_bypass must be true or false`);
     }
     return parsed.unattended_bypass;
   } catch (error) {
-    reportFailure('unattended consent record read', error, log);
-    return undefined;
+    const detail = error instanceof Error ? error.message : String(error);
+    errorLog(`[claude-preflight] lost consent at ${filePath}; failing closed: ${detail}`);
+    return false;
   }
 }
 

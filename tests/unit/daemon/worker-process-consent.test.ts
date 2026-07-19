@@ -1,7 +1,7 @@
 import { mkdtempSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const preflightMocks = vi.hoisted(() => ({
   ensureFolderTrusted: vi.fn(() => true),
@@ -20,7 +20,11 @@ const { WorkerProcess } = await import('../../../src/daemon/worker-process.js');
 const { recordUnattendedConsent, unattendedConsentPath } = await import('../../../src/utils/claude-preflight.js');
 
 describe('WorkerProcess unattended consent', () => {
-  it.each([false, true])('inherits install-level consent %s through AgentPTY construction', async (consent) => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it.each([false, true])('inherits install-level consent %s through AgentPTY spawn', async (consent) => {
     const frameworkRoot = mkdtempSync(join(tmpdir(), 'worker-consent-'));
     recordUnattendedConsent(frameworkRoot, consent, { source: 'worker-test' });
     const env = {
