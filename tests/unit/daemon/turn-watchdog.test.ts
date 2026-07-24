@@ -125,6 +125,27 @@ describe('stalled-turn watchdog (WS-B)', () => {
     expect(checker.turnHung).toBe(true);
   });
 
+  it('detects a stalled turn despite chronologically novel middle-dot status repaints', () => {
+    const agent = createAgent();
+    const checker = createChecker(agent);
+    armWatchdog(checker, now - 80 * 60_000);
+    agent.setLastInjectedAt(now - 70 * 60_000);
+    const expectedFragments = ['·on', '·still thinking', '·thinking more'];
+    const fragments = statusFixtureLines().filter((line) => expectedFragments.includes(line));
+    expect(fragments).toEqual(expectedFragments);
+
+    for (const [index, fragment] of fragments.entries()) {
+      vi.setSystemTime(now - (3 - index) * 20 * 60_000);
+      writeFileSync(join(paths.logDir, 'stdout.log'), `${fragment}\n`, { flag: 'a' });
+      checker.watchdogCheck();
+    }
+
+    vi.setSystemTime(now);
+    checker.watchdogCheck();
+    expect(agent.sessionRefresh).toHaveBeenCalledTimes(1);
+    expect(checker.turnHung).toBe(true);
+  });
+
   it('does not call a legitimate ticking turn hung when genuine output remains novel', () => {
     const agent = createAgent();
     const checker = createChecker(agent);
@@ -157,12 +178,16 @@ describe('stalled-turn watchdog (WS-B)', () => {
   it('keeps markdown bullets meaningful while filtering real spinner shapes', () => {
     expect(meaningfulPrintableLines(
       '* Building the real feature\n' +
+      '+ A substantive item\n' +
       '• Another actual point\n' +
+      '- Another substantive item\n' +
       '⣋ Thinking (3m 2s · ↓1.2k tokens)\n' +
       '•••',
     )).toEqual([
       '* Building the real feature',
+      '+ A substantive item',
       '• Another actual point',
+      '- Another substantive item',
     ]);
   });
 

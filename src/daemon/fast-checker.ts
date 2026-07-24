@@ -56,7 +56,7 @@ type WatchdogRestartMarker = {
 const ANSI_OSC_RE = /\x1b\][^\x07]*(?:\x07|\x1b\\)/g;
 const ANSI_CSI_RE = /\x1b\[[0-?]*[ -/]*[@-~]/g;
 const SPINNER_ONLY_RE = /^[\s⠀-⣿|/\\\-◐-◓◰-◳✢✳✶✻✽·•*+◯○●◦]+$/u;
-const SPINNER_STATUS_RE = /^[⠀-⣿◐-◓◰-◳✢✳✶✻✽◯○●◦]\s*/u;
+const SPINNER_STATUS_RE = /^[⠀-⣿◐-◓◰-◳✢✳✶✻✽·◯○●◦]\s*/u;
 const STATUS_SHAPED_PREFIX_RE = /^[⠀-⣿|/\\\-◐-◓◰-◳✢✳✶✻✽·•*+◯○●◦]/u;
 const MAX_MEANINGFUL_STDOUT_DELTA_BYTES = 256 * 1024;
 
