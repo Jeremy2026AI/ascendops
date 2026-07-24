@@ -1044,7 +1044,7 @@ export class AgentProcess {
     if (!launchDir) return false;
 
     // Claude projects dir uses the absolute path with all separators replaced by dashes
-    // e.g. /home/example/agents/boss -> -Users-foo-agents-boss (leading sep becomes -)
+    // e.g. /home/example/agents/boss -> -home-example-agents-boss (leading sep becomes -)
     // Use homedir() for cross-platform compatibility (HOME is not set on Windows).
     const convDir = join(
       homedir(),

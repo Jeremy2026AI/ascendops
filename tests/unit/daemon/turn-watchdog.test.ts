@@ -147,11 +147,23 @@ describe('stalled-turn watchdog (WS-B)', () => {
     expect(checker.turnHung).toBe(false);
   });
 
-  it('filters the labeled-synthetic measured status shape for every added glyph prefix', () => {
+  it('filters the labeled-synthetic measured status shape for unambiguous spinner prefixes', () => {
     const measuredShape = (prefix: string) => `${prefix} Thinking (3m 2s · ↓1.2k tokens)`;
-    const addedPrefixes = ['·', '•', '*', '+', '◯', '○', '●', '◦'];
+    const addedPrefixes = ['⣋', '✻', '◯', '○', '●', '◦'];
 
     expect(meaningfulPrintableLines(addedPrefixes.map(measuredShape).join('\n'))).toEqual([]);
+  });
+
+  it('keeps markdown bullets meaningful while filtering real spinner shapes', () => {
+    expect(meaningfulPrintableLines(
+      '* Building the real feature\n' +
+      '• Another actual point\n' +
+      '⣋ Thinking (3m 2s · ↓1.2k tokens)\n' +
+      '•••',
+    )).toEqual([
+      '* Building the real feature',
+      '• Another actual point',
+    ]);
   });
 
   it('stays inactive when no idle-flag writer has been observed this session', () => {
