@@ -399,12 +399,12 @@ export class TelegramAPI {
   /**
    * Get updates via long polling.
    */
-  async getUpdates(offset: number, timeout: number = 1): Promise<any> {
+  async getUpdates(offset: number, timeout: number = 1, signal?: AbortSignal): Promise<any> {
     return this.post('getUpdates', {
       offset,
       timeout,
       allowed_updates: ['message', 'callback_query', 'message_reaction'],
-    });
+    }, signal);
   }
 
   /**
@@ -646,13 +646,19 @@ export class TelegramAPI {
   /**
    * Make a POST request to the Telegram API.
    */
-  private async post(method: string, data: object): Promise<any> {
+  private async post(method: string, data: object, signal?: AbortSignal): Promise<any> {
+    // Keep the request timeout while allowing lifecycle owners to cancel an
+    // in-flight request when they explicitly stop the client.
+    const timeoutSignal = AbortSignal.timeout(15000);
+    const combinedSignal = signal
+      ? AbortSignal.any([signal, timeoutSignal])
+      : timeoutSignal;
     try {
       const response = await fetch(`${this.baseUrl}/${method}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
-        signal: AbortSignal.timeout(15000),
+        signal: combinedSignal,
       });
       const result = await response.json() as any;
       if (!result.ok) {
@@ -667,6 +673,9 @@ export class TelegramAPI {
       // Surface as a clean retryable error so the poller loop recovers next tick
       // instead of silently hanging on a wedged TCP connection.
       if (err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
+        if (signal?.aborted) {
+          throw new Error(`Telegram API request aborted: ${method}`);
+        }
         throw new Error(`Telegram API request timed out after 15s: ${method}`);
       }
       throw new Error(`Telegram API request failed: ${err}`);

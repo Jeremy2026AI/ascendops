@@ -361,6 +361,26 @@ describe('TelegramAPI fetch timeout', () => {
     await expect(api.getUpdates(0, 1)).rejects.toThrow(/timed out after 15s/);
   }, 20000);
 
+  it('distinguishes a caller abort from a network timeout', async () => {
+    globalThis.fetch = vi.fn(
+      (_input: any, init?: any) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            const err = new Error('aborted');
+            err.name = 'AbortError';
+            reject(err);
+          });
+        }),
+    ) as any;
+
+    const api = new TelegramAPI('123:TEST');
+    const controller = new AbortController();
+    const request = api.getUpdates(0, 1, controller.signal);
+    controller.abort();
+
+    await expect(request).rejects.toThrow(/request aborted: getUpdates/);
+  });
+
   it('succeeds on normal fetch response', async () => {
     globalThis.fetch = vi.fn(async () =>
       new Response(JSON.stringify({ ok: true, result: [] }), {
