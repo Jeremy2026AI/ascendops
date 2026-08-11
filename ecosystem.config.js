@@ -6,7 +6,7 @@
 // pm2 restart cortextos-daemon` switches instances without regenerating.
 const path = require('path');
 const frameworkRoot = process.env.CTX_FRAMEWORK_ROOT || __dirname;
-const instanceId = process.env.CTX_INSTANCE_ID || 'default';
+const instanceId = process.env.CTX_INSTANCE_ID || "default";
 const ctxRoot = process.env.CTX_ROOT || path.join(process.env.HOME || frameworkRoot, '.cortextos', instanceId);
 
 module.exports = {
@@ -14,31 +14,32 @@ module.exports = {
     {
       name: 'cortextos-daemon',
       script: path.join(frameworkRoot, 'dist', 'daemon.js'),
-      args: '--instance ' + (process.env.CTX_INSTANCE_ID || "default"),
+      args: '--instance ' + instanceId,
       cwd: frameworkRoot,
       env: {
-        CTX_INSTANCE_ID: process.env.CTX_INSTANCE_ID || "default",
+        CTX_INSTANCE_ID: instanceId,
         CTX_ROOT: ctxRoot,
         CTX_FRAMEWORK_ROOT: frameworkRoot,
         CTX_PROJECT_ROOT: process.env.CTX_PROJECT_ROOT || frameworkRoot,
-        CTX_ORG: process.env.CTX_ORG || "ascendops",
+        CTX_ORG: process.env.CTX_ORG || "gunn-property-services",
       },
       max_restarts: 50,
-      restart_delay: 5000,
+      restart_delay: 15000,
       autorestart: true,
     },
     {
       name: 'cortextos-dashboard',
-      script: 'npm',
-      args: 'run dev',
+      script: "npm",
+      args: "run start",
       cwd: path.join(frameworkRoot, 'dashboard'),
       env: {
         PORT: process.env.PORT || '3000',
       },
       // Dashboard reads its real config from dashboard/.env.local — populated
       // by /onboarding Phase 7. PM2 just supervises the npm process.
+      windowsHide: true,
       max_restarts: 50,
-      restart_delay: 5000,
+      restart_delay: 15000,
       autorestart: true,
     },
   ],

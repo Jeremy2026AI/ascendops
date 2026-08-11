@@ -1,0 +1,5 @@
+tunnel: dbba15a1-77c3-4252-a4c4-22772a079ea5
+ingress:
+  - hostname: chat-coordinator.gunnpropertyservices.com
+    service: http://localhost:8790
+  - service: http_status:404
