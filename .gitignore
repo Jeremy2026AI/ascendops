@@ -41,6 +41,9 @@ agents/*/memory/
 
 # Test artifacts
 test-results/
+
+# Stray capital-OS state dir from test runs (real runtime is ~/.cortextos, lowercase, outside repo)
+.cortextOS/
 *.log
 # Spurious directory created when ${APPDATA} env var unexpanded during npm link on Windows
 ${APPDATA}/
