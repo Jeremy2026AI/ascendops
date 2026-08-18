@@ -20,11 +20,11 @@ export interface Department {
 }
 
 export const DEPARTMENTS: Department[] = [
-  { slug: 'operations',  label: 'Operations',  agent: '', blurb: 'Orchestration, scheduling, and fleet coordination' },
-  { slug: 'maintenance', label: 'Maintenance', agent: '', blurb: 'Work orders, vendor dispatch, and turnovers' },
-  { slug: 'leasing',     label: 'Leasing',     agent: '', blurb: 'Renewals, applicant screening, and showings' },
-  { slug: 'analytics',   label: 'Analytics',   agent: '', blurb: 'Reporting, KPIs, and portfolio insight' },
-  { slug: 'dev',         label: 'Dev',         agent: '', blurb: 'Integrations, automation, and the technical stack' },
+  { slug: 'operations',  label: 'Operations',  agent: 'coordinator', blurb: 'Orchestration, scheduling, and fleet coordination' },
+  { slug: 'maintenance', label: 'Maintenance', agent: 'maintenance', blurb: 'Work orders, vendor dispatch, and turnovers' },
+  { slug: 'leasing',     label: 'Leasing',     agent: 'leasing',     blurb: 'Renewals, applicant screening, and showings' },
+  { slug: 'analytics',   label: 'Analytics',   agent: 'analyst',     blurb: 'Reporting, KPIs, and portfolio insight' },
+  { slug: 'dev',         label: 'Dev',         agent: 'analyst',     blurb: 'Integrations, automation, and the technical stack' },
   { slug: 'accounting',  label: 'Accounting',  agent: '', blurb: 'AR/AP, owner draws, and trust reconciliation' },
 ];
 

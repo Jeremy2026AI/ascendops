@@ -29,11 +29,19 @@ interface CodexUsageData {
 interface CostTrackingProps {
   dailyCosts: Array<{ date: string; cost: number }>;
   dailyCostByModel: Array<Record<string, unknown>>;
+  costByAgent?: Array<{ agent: string; cost: number; tokens: number }>;
   currentMonthCost: number;
   projectedMonthly: number;
   planUsage?: PlanUsageData | null;
   usageHistory?: UsageHistoryPoint[];
   codexUsage?: CodexUsageData | null;
+}
+
+function formatTokens(n: number): string {
+  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(2)}B`;
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
+  return `${n}`;
 }
 
 function UsageBar({ pct, label, sublabel }: { pct: number; label: string; sublabel?: string }) {
@@ -55,6 +63,7 @@ function UsageBar({ pct, label, sublabel }: { pct: number; label: string; sublab
 export function CostTracking({
   dailyCosts,
   dailyCostByModel,
+  costByAgent,
   currentMonthCost,
   projectedMonthly,
   planUsage,
@@ -65,6 +74,7 @@ export function CostTracking({
   const modelColorValues = modelKeys.map((k) => MODEL_COLORS[k]);
 
   const hasPlanData = !!planUsage || (usageHistory && usageHistory.length > 0);
+  const totalAgentTokens = (costByAgent ?? []).reduce((sum, a) => sum + a.tokens, 0);
 
   return (
     <div className="space-y-6">
@@ -189,6 +199,38 @@ export function CostTracking({
           </CardContent>
         </Card>
       ) : null}
+
+      {/* Tokens by Agent — which agent is actually driving usage, regardless of plan type */}
+      {costByAgent && costByAgent.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium uppercase tracking-wider text-muted-foreground">
+              Tokens by Agent
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <BarChart
+              data={costByAgent.map((a) => ({ agent: a.agent, tokens: a.tokens }))}
+              xKey="agent"
+              yKeys={['tokens']}
+              colors={[CHART_GOLD]}
+              height={180}
+            />
+            <div className="mt-4 space-y-2">
+              {costByAgent.map((a) => (
+                <div key={a.agent} className="flex items-center justify-between text-sm">
+                  <span className="font-medium">{a.agent}</span>
+                  <span className="text-muted-foreground tabular-nums">
+                    {formatTokens(a.tokens)} tokens
+                    {totalAgentTokens > 0 && ` (${Math.round((a.tokens / totalAgentTokens) * 100)}%)`}
+                    {a.cost > 0 && ` · $${a.cost.toFixed(2)}`}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* API Cost Tracking (secondary — for users on pay-per-token) */}
       {!hasPlanData && dailyCosts.length > 0 && (

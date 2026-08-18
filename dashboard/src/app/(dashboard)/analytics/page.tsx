@@ -5,6 +5,7 @@ import {
   getDailyCosts,
   getDailyCostByModel,
   getCurrentMonthCost,
+  getCostByAgent,
 } from '@/lib/cost-parser';
 import { syncCostsLazy } from '@/lib/sync';
 
@@ -29,12 +30,13 @@ export default async function AnalyticsPage({
   syncCostsLazy();
 
   // Fetch all data in parallel
-  const [taskData, agentStats, dailyCosts, dailyCostByModel, monthCost, goalsData, fleetHealth, planUsage, usageHistory, codexUsage] =
+  const [taskData, agentStats, dailyCosts, dailyCostByModel, costByAgent, monthCost, goalsData, fleetHealth, planUsage, usageHistory, codexUsage] =
     await Promise.all([
       Promise.resolve(getTaskThroughput(30, org || undefined)),
       Promise.resolve(getAgentEffectiveness(org || undefined)),
       Promise.resolve(getDailyCosts(30)),
       Promise.resolve(getDailyCostByModel(30)),
+      Promise.resolve(getCostByAgent()),
       Promise.resolve(getCurrentMonthCost()),
       Promise.resolve(org ? getGoals(org) : { bottleneck: '', goals: [] }),
       Promise.resolve(getFleetHealth(org || 'default')),
@@ -74,6 +76,7 @@ export default async function AnalyticsPage({
       <CostTracking
         dailyCosts={dailyCosts}
         dailyCostByModel={dailyCostByModel}
+        costByAgent={costByAgent}
         currentMonthCost={monthCost}
         projectedMonthly={projectedMonthly}
         planUsage={planUsage}

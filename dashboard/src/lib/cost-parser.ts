@@ -424,6 +424,24 @@ export function getCostByModel(): Array<{ model: string; cost: number; tokens: n
 }
 
 /**
+ * Get cost and token totals grouped by agent, highest total_tokens first.
+ */
+export function getCostByAgent(): Array<{ agent: string; cost: number; tokens: number }> {
+  try {
+    return db
+      .prepare(
+        `SELECT agent, SUM(cost_usd) as cost, SUM(total_tokens) as tokens
+         FROM cost_entries
+         GROUP BY agent
+         ORDER BY tokens DESC`,
+      )
+      .all() as Array<{ agent: string; cost: number; tokens: number }>;
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Get daily cost breakdown by model for stacked bar chart.
  */
 export function getDailyCostByModel(
