@@ -20,8 +20,8 @@ import {
   IconClock,
   IconTarget,
   IconX,
-  IconNotes,
   IconChecklist,
+  IconFolders,
 } from '@tabler/icons-react';
 import { cn } from '@/lib/utils';
 
@@ -37,7 +37,7 @@ const morePages = [
   { label: 'Comms', href: '/comms', icon: IconMessages },
   { label: 'Activity', href: '/activity', icon: IconActivity },
   { label: 'Knowledge Base', href: '/knowledge-base', icon: IconBook2 },
-  { label: 'Wiki', href: '/wiki', icon: IconNotes },
+  { label: 'Agent Files', href: '/agent-files', icon: IconFolders },
   { label: 'SOP Library', href: '/sops', icon: IconChecklist },
   { label: 'Scheduled Jobs', href: '/workflows', icon: IconClock },
   { label: 'Strategy', href: '/strategy', icon: IconTarget },
