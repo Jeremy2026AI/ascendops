@@ -15,8 +15,9 @@ import { getAgentDir } from './config';
 const EXCLUDED_NAMES = new Set(['.git', '.env', 'node_modules', 'telegram-images']);
 const EXCLUDED_PATTERNS = [/^secrets/i, /credential/i, /password/i, /\.key\.json$/i, /^\.env\./];
 
-// Extensions worth showing in the tree. Binary/media/log noise is skipped.
-const VISIBLE_EXTENSIONS = new Set(['.md', '.json', '.ts', '.js', '.txt', '.yml', '.yaml']);
+// Extensions worth showing in the tree, and the only ones editable via the
+// dashboard's save endpoint. Binary/media/log noise is skipped entirely.
+export const VISIBLE_EXTENSIONS = new Set(['.md', '.json', '.ts', '.js', '.txt', '.yml', '.yaml']);
 
 function isExcluded(name: string): boolean {
   if (EXCLUDED_NAMES.has(name)) return true;

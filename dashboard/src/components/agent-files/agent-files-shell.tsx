@@ -146,7 +146,13 @@ export function AgentFilesShell({ org, agents }: AgentFilesShellProps) {
           ) : fileError ? (
             <div className="p-6 text-sm text-destructive">{fileError}</div>
           ) : file ? (
-            <FileView file={file} onClose={() => setSelected(null)} />
+            <FileView
+              file={file}
+              org={org}
+              agent={agent}
+              onClose={() => setSelected(null)}
+              onSaved={(updated) => setFile(updated)}
+            />
           ) : null}
         </div>
       </div>
@@ -154,17 +160,114 @@ export function AgentFilesShell({ org, agents }: AgentFilesShellProps) {
   );
 }
 
-function FileView({ file, onClose }: { file: FileContent; onClose: () => void }) {
+function FileView({
+  file,
+  org,
+  agent,
+  onClose,
+  onSaved,
+}: {
+  file: FileContent;
+  org: string;
+  agent: string;
+  onClose: () => void;
+  onSaved: (updated: FileContent) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(file.content);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  // A newly selected file resets any in-progress edit on this file's own view.
+  useEffect(() => {
+    setEditing(false);
+    setDraft(file.content);
+    setSaveError(null);
+  }, [file.relPath, file.mtimeMs]);
+
+  const startEdit = () => {
+    setDraft(file.content);
+    setSaveError(null);
+    setEditing(true);
+  };
+
+  const cancelEdit = () => {
+    setDraft(file.content);
+    setSaveError(null);
+    setEditing(false);
+  };
+
+  const save = async () => {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const res = await fetch('/api/agent-files/content', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          org,
+          agent,
+          path: file.relPath,
+          content: draft,
+          expectedMtimeMs: file.mtimeMs,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSaveError(data.error ?? `Save failed (${res.status})`);
+        return;
+      }
+      onSaved(data as FileContent);
+      setEditing(false);
+    } catch (e) {
+      setSaveError(String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <ScrollArea className="flex-1">
       <div className="p-6 max-w-3xl mx-auto">
         <div className="flex items-start justify-between gap-4 mb-4">
           <p className="text-[11px] font-mono text-muted-foreground truncate">{file.relPath}</p>
-          <Button type="button" variant="ghost" size="sm" onClick={onClose} className="shrink-0" aria-label="Close file">
-            Close
-          </Button>
+          <div className="flex items-center gap-2 shrink-0">
+            {editing ? (
+              <>
+                <Button type="button" variant="ghost" size="sm" onClick={cancelEdit} disabled={saving}>
+                  Cancel
+                </Button>
+                <Button type="button" size="sm" onClick={save} disabled={saving || draft === file.content}>
+                  {saving ? 'Saving…' : 'Save'}
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button type="button" variant="outline" size="sm" onClick={startEdit}>
+                  Edit
+                </Button>
+                <Button type="button" variant="ghost" size="sm" onClick={onClose} aria-label="Close file">
+                  Close
+                </Button>
+              </>
+            )}
+          </div>
         </div>
-        {file.ext === '.md' ? (
+
+        {saveError && (
+          <p className="text-sm text-destructive mb-3 rounded-md border border-destructive/30 bg-destructive/10 p-3">
+            {saveError}
+          </p>
+        )}
+
+        {editing ? (
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            spellCheck={false}
+            className="w-full min-h-[60vh] rounded-md border bg-background p-3 text-xs font-mono leading-relaxed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-y"
+          />
+        ) : file.ext === '.md' ? (
           <div className="prose prose-invert max-w-none">
             <WikiRenderer text={file.content} onWikilink={noopWikilink} />
           </div>
